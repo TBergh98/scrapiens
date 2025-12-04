@@ -1,0 +1,142 @@
+# Scrapiens Configuration File
+
+# File Paths
+paths:
+  # Base directory (can be overridden by BASE_DIR environment variable)
+  base_dir: "//nas1/SCS4/UO_Biostatistica/Simonetto/Scraping"
+  # Input Excel file name
+  excel_file: "Elenco nominativi-parole chiave-siti.xlsx"
+  # Output directory for extracted links
+  output_dir: "all_links"
+  # Unified links file (after deduplication)
+  unified_links_file: "link_unificati.json"
+
+# Excel Configuration
+excel:
+  # Sheet index (0-based, so 1 means the second sheet)
+  sheet_index: 1
+  # Row ranges for different site categories
+  row_ranges:
+    standard: [16, 68]  # Rows 16-68 (standard websites)
+    problematic: [70, 73]  # Rows 70-73 (problematic websites)
+  # Column containing URLs (1-based, so 1 means column A)
+  url_column: 1
+
+# Selenium Configuration
+selenium:
+  # Run browser in headless mode
+  headless: true
+  # Browser to use (currently only 'chrome' supported)
+  browser: "chrome"
+  # Maximum time to wait for elements (seconds)
+  implicit_wait: 15
+  # Maximum time to wait for page load (seconds)
+  page_load_timeout: 30
+  # Save screenshots on pagination errors for debugging
+  screenshot_on_error: true
+  # Initial wait time after page load (seconds)
+  initial_wait: 2
+  # Wait time after cookie acceptance (seconds)
+  cookie_wait: 1
+
+# Web Scraping Configuration
+scraping:
+  # Default maximum pages to scrape per site
+  max_pages_default: 1
+  # Number of scroll iterations for JavaScript sites
+  scroll_iterations: 50
+  # Number of retry attempts for pagination clicks
+  pagination_retries: 3
+  # Enable JavaScript-based scrolling for dynamic content
+  enable_js_scrolling: true
+  # Maximum time to wait for page change after pagination (seconds)
+  page_change_timeout: 8
+  # Extended wait time for content loading (seconds)
+  extended_wait: 5
+  # Time between scroll iterations (seconds)
+  scroll_delay: 1.5
+
+# Cookie Banner Configuration
+cookies:
+  # Text patterns to search for in cookie buttons (case insensitive)
+  text_patterns:
+    - "accept"
+    - "accetta"
+    - "accept all"
+    - "accetta tutti"
+    - "accept cookies"
+    - "accetta cookie"
+    - "i agree"
+    - "agree"
+    - "acconsento"
+    - "ok"
+    - "continue"
+    - "continua"
+    - "allow"
+    - "consenti"
+    - "consent"
+  # CSS selectors for cookie buttons
+  attribute_selectors:
+    - 'button[id*="accept"]'
+    - 'button[class*="accept"]'
+    - 'button[class*="cookie"]'
+    - 'button[class*="consent"]'
+    - 'a[id*="accept"]'
+    - 'a[class*="accept"]'
+    - 'a[class*="cookie"]'
+    - '[data-testid*="accept"]'
+    - '[data-testid*="cookie"]'
+    - '[aria-label*="accept"]'
+    - '[aria-label*="accetta"]'
+    - '[aria-label*="cookie"]'
+
+# Overlay Hiding Configuration
+overlays:
+  # CSS selectors for overlays to hide
+  selectors:
+    - ".eui-language-selector-button__language-code"
+    - ".eui-toolbar"
+    - ".eui-toolbar__left"
+    - ".eui-toolbar__right"
+    - ".eui-input-group-addon"
+    - '[role="dialog"]'
+    - ".modal"
+    - ".overlay"
+    - ".cookie-banner"
+    - ".notification"
+
+# OpenAI Configuration
+openai:
+  # Model to use for link classification
+  model: "gpt-4o-mini"
+  # Request timeout (seconds)
+  timeout: 300
+  # Progress indicator interval (seconds)
+  progress_interval: 10
+  # Classification prompt template
+  classification_prompt: |
+    Analyze the following list of URLs and classify each one into one of these categories:
+    
+    1. "single_grant" - URLs that lead to a page containing complete information about a SINGLE research grant/call (look for keywords like "bando", "call", "grant", "funding opportunity")
+    2. "grant_list" - URLs that lead to a page containing a LIST of MULTIPLE grants/calls
+    3. "other" - URLs that are generic pages (contacts, about us, home page, etc.)
+    
+    Return your response as a JSON array where each object has:
+    - "url": the original URL
+    - "category": one of "single_grant", "grant_list", or "other"
+    - "confidence": a number between 0 and 1 indicating your confidence
+    - "reason": a brief explanation of why you classified it this way
+    
+    URLs to classify:
+    {urls}
+
+# Logging Configuration
+logging:
+  # Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+  level: "INFO"
+  # Log format
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  # Log to file
+  log_to_file: true
+  # Log file name
+  log_file: "scrapiens.log"
