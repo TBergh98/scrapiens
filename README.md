@@ -114,7 +114,7 @@ scrapiens/
 
 ```yaml
 paths:
-  base_dir: "//nas1/SCS4/UO_Biostatistica/Simonetto/Scraping"
+  base_dir: "/your/base/dir"
   excel_file: "Elenco nominativi-parole chiave-siti.xlsx"
   output_dir: "all_links"
   unified_links_file: "link_unificati.json"
@@ -143,7 +143,7 @@ openai:
 OPENAI_API_KEY=your_openai_api_key_here
 
 # Optional: Override base directory
-BASE_DIR=//nas1/SCS4/UO_Biostatistica/Simonetto/Scraping
+BASE_DIR=/your/base/dir
 ```
 
 ## Usage
