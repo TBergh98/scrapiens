@@ -1,35 +1,30 @@
 # Scrapiens 🕷️
 
-**Scrapiens** is a modular web scraping and AI-powered link classification system designed to extract and categorize research grant/call links from multiple websites.
+A modular web scraping and AI-powered link classification system for extracting and categorizing research grant/call links from multiple websites.
 
-## Features
+> **Status**: In active development and testing  
+> **Team**: Internal use (TBergh98 + collaborator)
 
-✨ **Comprehensive Web Scraping**
-- Selenium-based scraping with headless Chrome support
-- Automatic cookie banner handling (multiple strategies)
+## Technical Overview
+
+**Web Scraping Engine**
+- Selenium-based with headless Chrome
+- Automatic cookie banner handling (multiple detection strategies)
 - Pagination support for multi-page sites
 - JavaScript rendering for dynamic content
 - Overlay and popup handling
 
-🔄 **Link Deduplication**
-- Automatic removal of duplicate URLs across sites
-- Detailed statistics and reporting
-- JSON output format
+**Link Processing Pipeline**
+- Deduplication across multiple sources
+- OpenAI-powered classification (single_grant, grant_list, other)
+- Batch processing for API efficiency
+- JSON-based data interchange
 
-🤖 **AI-Powered Classification**
-- OpenAI integration for intelligent link categorization
-- Classifies links into:
-  - `single_grant`: Individual research grant/call pages
-  - `grant_list`: Pages listing multiple grants
-  - `other`: Generic pages (contact, about, etc.)
-- Confidence scores and explanations
-
-📊 **Production-Ready Architecture**
-- Modular design with clear separation of concerns
-- Comprehensive configuration system (YAML + environment variables)
-- Robust logging and error handling
-- Extensive test coverage
-- CLI interface for easy automation
+**Architecture**
+- Modular component design
+- YAML + environment variable configuration
+- Comprehensive logging system
+- CLI and programmatic interfaces
 
 ## Project Structure
 
@@ -85,7 +80,7 @@ scrapiens/
 
 1. **Clone the repository:**
    ```bash
-   git clone https://github.com/yourusername/scrapiens.git
+   git clone https://github.com/TBergh98/scrapiens.git
    cd scrapiens
    ```
 
@@ -94,10 +89,6 @@ scrapiens/
    # Windows
    py -m venv .venv
    .venv\Scripts\activate
-
-   # Linux/Mac
-   python3 -m venv .venv
-   source .venv/bin/activate
    ```
 
 3. **Install dependencies:**
@@ -106,18 +97,16 @@ scrapiens/
    ```
 
 4. **Configure environment variables:**
+   Create `.env` file with your OpenAI API key:
    ```bash
-   # Copy the example file
-   cp .env.example .env
-   
-   # Edit .env and add your OpenAI API key
-   # OPENAI_API_KEY=sk-your-key-here
+   OPENAI_API_KEY=sk-your-key-here
    ```
 
 5. **Configure application:**
-   - Edit `config/config.yaml` to set paths, Excel file location, and scraping parameters
-   - Update the `paths.base_dir` to your working directory
-   - Adjust Excel row ranges if needed
+   Edit `config/config.yaml`:
+   - Set `paths.base_dir` to your working directory
+   - Update `paths.excel_file` location
+   - Adjust `excel.row_ranges` if needed
 
 ## Configuration
 
@@ -338,54 +327,33 @@ pytest tests/test_deduplicator.py
 pytest --cov=. --cov-report=html
 ```
 
-## Troubleshooting
+## Technical Details
 
-### Common Issues
+### Selenium Configuration
 
-**1. ChromeDriver not found**
-```
-Solution: Selenium 4+ automatically manages ChromeDriver. 
-Make sure Chrome browser is installed and up to date.
-```
+The scraper uses customizable Chrome options. Modify in `scraper/link_extractor.py`:
 
-**2. OpenAI API key error**
-```
-Error: OPENAI_API_KEY not found
-Solution: Create .env file from .env.example and add your API key
+```python
+chrome_options.add_argument('--window-size=1920,1080')
+chrome_options.add_argument('--disable-images')
+chrome_options.add_argument('--proxy-server=proxy:port')
 ```
 
-**3. Excel file not found**
-```
-Error: Excel file not found
-Solution: Update paths.base_dir and paths.excel_file in config/config.yaml
-```
+### OpenAI Integration
 
-**4. Cookie banner not detected**
-```
-Issue: Some cookie banners are not automatically accepted
-Solution: Add custom selectors to config.yaml under cookies.attribute_selectors
-```
-
-**5. Pagination not working**
-```
-Issue: Script stops after first page
-Solution: Set next_selector in site configuration or config.yaml
-```
-
-### Debug Mode
-
-Enable detailed logging by setting the log level in `config/config.yaml`:
+Configurable model selection in `config/config.yaml`:
 
 ```yaml
-logging:
-  level: "DEBUG"  # Change from INFO to DEBUG
+openai:
+  model: "gpt-4o-mini"  # or "gpt-4o", "gpt-3.5-turbo"
+  timeout: 300
 ```
 
-## Advanced Configuration
+Batch processing is implemented for efficiency (default: 50 links per API call).
 
-### Custom Site Configuration
+### Custom Site Handling
 
-For sites requiring special handling, you can customize the configuration:
+For sites requiring special treatment:
 
 ```python
 sites = [
@@ -393,66 +361,21 @@ sites = [
         'name': 'complex_site',
         'url': 'https://example.com/grants',
         'js': True,  # Enable JavaScript rendering
-        'next_selector': 'button.pagination-next',  # Custom pagination selector
-        'max_pages': 5  # Scrape up to 5 pages
+        'next_selector': 'button.pagination-next',  # Custom pagination
+        'max_pages': 5  # Limit pagination depth
     }
 ]
 ```
 
-### Selenium Options
+### Logging
 
-Customize Chrome options in `scraper/link_extractor.py`:
-
-```python
-chrome_options.add_argument('--window-size=1920,1080')
-chrome_options.add_argument('--disable-images')  # Faster scraping
-chrome_options.add_argument('--proxy-server=proxy:port')  # Use proxy
-```
-
-### OpenAI Model Selection
-
-Change the AI model in `config/config.yaml`:
+Adjust log verbosity in `config/config.yaml`:
 
 ```yaml
-openai:
-  model: "gpt-4o"  # Use GPT-4 for better accuracy
-  # or "gpt-3.5-turbo" for faster/cheaper processing
+logging:
+  level: "DEBUG"  # INFO, DEBUG, WARNING, ERROR
 ```
-
-## Performance Tips
-
-1. **Batch Processing**: Use batch classification (default 50 links per batch) to reduce API calls
-2. **Headless Mode**: Keep `selenium.headless: true` for faster scraping
-3. **Parallel Scraping**: Modify the scraper to use multiple browsers for parallel processing
-4. **Caching**: Implement caching for previously scraped/classified links
-5. **Rate Limiting**: Add delays between requests to avoid overwhelming target servers
-
-## Contributing
-
-Contributions are welcome! Please follow these guidelines:
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Write tests for new functionality
-4. Ensure all tests pass (`pytest`)
-5. Commit your changes (`git commit -m 'Add amazing feature'`)
-6. Push to the branch (`git push origin feature/amazing-feature`)
-7. Open a Pull Request
-
-## Support
-
-For issues, questions, or contributions, open an issue on GitHub.
-
-## Changelog
-
-### Version 1.0.0 (Current)
-- Initial release
-- Complete web scraping pipeline
-- OpenAI integration for link classification
-- Comprehensive CLI interface
-- Full test coverage
-- Example scripts and documentation
 
 ---
 
-**Happy Scraping! 🕷️**
+**Repository**: https://github.com/TBergh98/scrapiens
