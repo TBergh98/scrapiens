@@ -4,12 +4,13 @@ import time
 from typing import Optional
 from selenium.webdriver.remote.webdriver import WebDriver
 from selenium.webdriver.common.by import By
-from utils.logger import get_logger
+from utils.logger import get_logger, timed_operation
 from config.settings import get_config
 
 logger = get_logger(__name__)
 
 
+@timed_operation("Cookie acceptance")
 def accept_cookies(driver: WebDriver) -> bool:
     """
     Attempt to accept cookies on a webpage using multiple strategies.
@@ -159,9 +160,11 @@ def scroll_page_for_lazy_content(driver: WebDriver, max_iterations: Optional[int
     max_iterations = int(max_iterations) if max_iterations is not None else 50
     scroll_delay = config.get('scraping.scroll_delay', 1.5)
     
+    scroll_start = time.time()
     logger.debug(f"Scrolling page for lazy content (max {max_iterations} iterations)")
     
     last_height = driver.execute_script("return document.body.scrollHeight")
+    initial_height = last_height
     
     for i in range(max_iterations):
         # Scroll to bottom
@@ -172,14 +175,20 @@ def scroll_page_for_lazy_content(driver: WebDriver, max_iterations: Optional[int
         new_height = driver.execute_script("return document.body.scrollHeight")
         
         if new_height == last_height:
-            logger.debug(f"Height stabilized after {i + 1} scrolls")
+            scroll_elapsed = time.time() - scroll_start
+            height_delta = new_height - initial_height
+            logger.debug(f"  Height stabilized after {i + 1} scrolls ({scroll_elapsed:.1f}s, delta: {height_delta}px)")
             break
         
         last_height = new_height
-    
-    logger.debug(f"Completed scrolling after {min(i + 1, max_iterations)} iterations")
+    else:
+        # Loop completed without break
+        scroll_elapsed = time.time() - scroll_start
+        height_delta = last_height - initial_height
+        logger.debug(f"  Reached max iterations ({max_iterations}), delta: {height_delta}px")
 
 
+@timed_operation("Page readiness wait")
 def wait_for_page_ready(driver: WebDriver, timeout: int = 15) -> bool:
     """
     Wait for page to be ready (document ready state complete).
@@ -200,7 +209,7 @@ def wait_for_page_ready(driver: WebDriver, timeout: int = 15) -> bool:
             logger.debug("Page ready")
             return True
         
-        time.sleep(0.5)
+        time.sleep(0.1)
     
-    logger.warning(f"Page not ready after {timeout} seconds")
+    logger.debug(f"Page not fully ready, proceeding anyway")
     return False

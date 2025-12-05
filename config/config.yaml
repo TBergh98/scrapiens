@@ -3,7 +3,7 @@
 # File Paths
 paths:
   # Base directory (can be overridden by BASE_DIR environment variable)
-  base_dir: "//nas1/SCS4/UO_Biostatistica/Simonetto/Scraping"
+  base_dir: "."
   # Input directory for YAML configuration files
   input_dir: "input"
   # Output directory for extracted links
@@ -25,32 +25,32 @@ selenium:
   # Browser to use (currently only 'chrome' supported)
   browser: "chrome"
   # Maximum time to wait for elements (seconds)
-  implicit_wait: 15
+  implicit_wait: 3
   # Maximum time to wait for page load (seconds)
-  page_load_timeout: 30
+  page_load_timeout: 8
   # Save screenshots on pagination errors for debugging
-  screenshot_on_error: true
+  screenshot_on_error: false
   # Initial wait time after page load (seconds)
-  initial_wait: 2
+  initial_wait: 0
   # Wait time after cookie acceptance (seconds)
-  cookie_wait: 1
+  cookie_wait: 0
 
 # Web Scraping Configuration
 scraping:
   # Default maximum pages to scrape per site
   max_pages_default: 1
   # Number of scroll iterations for JavaScript sites
-  scroll_iterations: 50
+  scroll_iterations: 8
   # Number of retry attempts for pagination clicks
-  pagination_retries: 3
+  pagination_retries: 1
   # Enable JavaScript-based scrolling for dynamic content
   enable_js_scrolling: true
   # Maximum time to wait for page change after pagination (seconds)
-  page_change_timeout: 8
+  page_change_timeout: 3
   # Extended wait time for content loading (seconds)
-  extended_wait: 5
+  extended_wait: 1
   # Time between scroll iterations (seconds)
-  scroll_delay: 1.5
+  scroll_delay: 0.2
 
 # Cookie Banner Configuration
 cookies:

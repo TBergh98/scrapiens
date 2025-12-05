@@ -9,13 +9,14 @@ from selenium.webdriver.remote.webdriver import WebDriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from utils.logger import get_logger
+from utils.logger import get_logger, timed_operation
 from config.settings import get_config
 from scraper.selenium_utils import hide_overlays, scroll_page_for_lazy_content
 
 logger = get_logger(__name__)
 
 
+@timed_operation("Next button click attempt")
 def click_next_button(
     driver: WebDriver,
     selector: str,
@@ -184,10 +185,8 @@ def detect_page_change(
     timeout = config.get('scraping.page_change_timeout', 8)
     extended_wait = config.get('scraping.extended_wait', 5)
     
-    logger.debug(f"Current URL before waiting: {driver.current_url}")
-    logger.info("Waiting for page to change...")
-    
     page_changed = False
+    change_start = time.time()
     
     # Method 1: Wait for URL change
     try:
@@ -200,11 +199,12 @@ def detect_page_change(
             
             if current_url != last_url:
                 page_changed = True
-                logger.info(f"Page changed - URL updated from {last_url} to {current_url}")
+                elapsed = time.time() - change_start
+                logger.info(f"Page changed - URL updated ({elapsed:.1f}s): {last_url} → {current_url}")
                 break
         
         if not page_changed:
-            logger.warning(f"URL still unchanged after {timeout} seconds: {driver.current_url}")
+            logger.debug(f"URL unchanged after {timeout}s: {driver.current_url}")
             
     except Exception as url_ex:
         logger.error(f"Error checking URL: {url_ex}")
@@ -212,12 +212,12 @@ def detect_page_change(
     # Method 2: If URL didn't change, check for new content
     if not page_changed:
         try:
-            logger.info("Waiting longer for content to fully load...")
+            logger.debug("Method 2: Checking for new links (AJAX pagination)...")
             time.sleep(extended_wait)
             
             # Scroll if JS mode
             if js_mode:
-                logger.info("Force scrolling to load lazy content...")
+                logger.debug("  Force scrolling to load lazy content...")
                 scroll_page_for_lazy_content(driver, max_iterations=15)
             
             # Check for new links
@@ -229,16 +229,17 @@ def detect_page_change(
             
             new_links = current_links - previous_links
             
-            logger.debug(f"Links before: {len(previous_links)}, current: {len(current_links)}, new: {len(new_links)}")
+            logger.debug(f"  Links before: {len(previous_links)}, current: {len(current_links)}, new: {len(new_links)}")
             
             if new_links:
                 page_changed = True
-                logger.info(f"Page changed - found {len(new_links)} new unique links after extended loading")
+                elapsed = time.time() - change_start
+                logger.info(f"Page changed - found {len(new_links)} new links ({elapsed:.1f}s)")
                 # Sample new links for debugging
-                sample_new = list(new_links)[:3]
-                logger.debug(f"Sample new links: {sample_new}")
+                sample_new = list(new_links)[:2]
+                logger.debug(f"  Sample new links: {sample_new}")
             else:
-                logger.info("No new unique links detected")
+                logger.debug("No new links detected")
                 
         except Exception as content_check_ex:
             logger.warning(f"Could not check for new content: {type(content_check_ex).__name__}: {content_check_ex}")

@@ -2,6 +2,8 @@
 
 import logging
 import sys
+import time
+import functools
 from pathlib import Path
 from typing import Optional
 from config.settings import get_config
@@ -87,3 +89,58 @@ def get_logger(name: str) -> logging.Logger:
         logger = setup_logger(name)
     
     return logger
+
+
+def timed_operation(operation_name: str, show_result: bool = True):
+    """
+    Decorator to log operation timing.
+    
+    Args:
+        operation_name: Human-readable operation name for logging
+        show_result: Whether to include result info in log (e.g., items count)
+    """
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            logger = get_logger(func.__module__)
+            start_time = time.time()
+            
+            try:
+                result = func(*args, **kwargs)
+                elapsed = time.time() - start_time
+                
+                # Format timing message based on duration
+                if elapsed < 1:
+                    timing_str = f"{elapsed*1000:.0f}ms"
+                else:
+                    timing_str = f"{elapsed:.1f}s"
+                
+                logger.debug(f"⏱ {operation_name}: {timing_str}")
+                return result
+            except Exception as e:
+                elapsed = time.time() - start_time
+                logger.warning(f"⚠ {operation_name} failed after {elapsed:.1f}s: {str(e)[:100]}")
+                raise
+        return wrapper
+    return decorator
+
+
+def log_milestone(message: str, elapsed_time: Optional[float] = None, prefix: str = "✓"):
+    """
+    Log a milestone with optional timing information.
+    
+    Args:
+        message: Milestone message
+        elapsed_time: Optional elapsed time in seconds
+        prefix: Prefix symbol (default ✓)
+    """
+    logger = get_logger("scrapiens")
+    if elapsed_time is not None:
+        if elapsed_time < 1:
+            timing_str = f" ({elapsed_time*1000:.0f}ms)"
+        else:
+            timing_str = f" ({elapsed_time:.1f}s)"
+    else:
+        timing_str = ""
+    
+    logger.info(f"{prefix} {message}{timing_str}")

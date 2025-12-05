@@ -32,6 +32,12 @@ def _load_sites_and_keywords():
 
 def cmd_scrape(args):
     """Execute the scraping command."""
+    # Set logging level if verbose flag is set
+    if hasattr(args, 'verbose') and args.verbose:
+        from utils.logger import setup_logger
+        setup_logger('scrapiens', level='DEBUG')
+        logger.info("=== Verbose logging enabled ===")
+    
     logger.info("=== Starting Link Scraping ===")
 
     # Load sites (keywords are loaded later in pipeline/classify)
@@ -158,6 +164,12 @@ def cmd_classify(args):
 
 def cmd_pipeline(args):
     """Execute the full pipeline."""
+    # Set logging level if verbose flag is set
+    if hasattr(args, 'verbose') and args.verbose:
+        from utils.logger import setup_logger
+        setup_logger('scrapiens', level='DEBUG')
+        logger.info("=== Verbose logging enabled ===")
+    
     logger.info("=== Starting Full Pipeline ===")
     
     # Step 1: Scrape
@@ -165,7 +177,8 @@ def cmd_pipeline(args):
     scrape_args = argparse.Namespace(
         problematic=args.problematic,
         output=args.scrape_output,
-        save_json=True
+        save_json=True,
+        verbose=getattr(args, 'verbose', False)
     )
     
     if cmd_scrape(scrape_args) != 0:
@@ -245,6 +258,11 @@ Examples:
         '--save-json',
         action='store_true',
         help='Save combined JSON file'
+    )
+    parser_scrape.add_argument(
+        '-v', '--verbose',
+        action='store_true',
+        help='Enable verbose logging (DEBUG level)'
     )
     
     # Deduplicate command
@@ -330,6 +348,11 @@ Examples:
         action='store_true',
         help='Ignore cache and re-extract all grants'
     )
+    parser_pipeline.add_argument(
+        '-v', '--verbose',
+        action='store_true',
+        help='Enable verbose logging (DEBUG level)'
+    )
     
     # Parse arguments
     args = parser.parse_args()
@@ -338,8 +361,9 @@ Examples:
         parser.print_help()
         return 1
     
-    # Setup logging
-    setup_logger('scrapiens')
+    # Setup logging - use DEBUG level if verbose flag is set for any command
+    log_level = 'DEBUG' if (hasattr(args, 'verbose') and args.verbose) else 'INFO'
+    setup_logger('scrapiens', level=log_level)
     
     # Execute command
     commands = {
