@@ -1,37 +1,68 @@
-"""Tests for Excel reader module."""
+"""Tests for YAML site and keyword readers."""
 
-import pytest
 from pathlib import Path
-from scraper.excel_reader import sanitize_domain_name, read_sites_from_xlsx
+import pytest
+from scraper.sites_reader import load_sites_from_yaml
+from scraper.keywords_reader import load_keywords_from_yaml, create_keyword_to_recipients_map
 
 
-def test_sanitize_domain_name():
-    """Test domain name sanitization."""
-    assert sanitize_domain_name('https://example.com/path') == 'example_com'
-    assert sanitize_domain_name('https://sub.example.com') == 'sub_example_com'
-    assert sanitize_domain_name('http://example.org:8080') == 'example_org_8080'
-    assert sanitize_domain_name('invalid-url') == 'invalid_url'
+def test_load_sites_missing_file():
+    """Ensure missing sites file raises FileNotFoundError."""
+    with pytest.raises(FileNotFoundError):
+        load_sites_from_yaml(Path('missing_sites.yaml'))
 
 
-def test_sanitize_domain_name_special_chars():
-    """Test sanitization of special characters."""
-    assert sanitize_domain_name('https://ex@mple.com') == 'ex_mple_com'
-    assert sanitize_domain_name('https://example.com/path?q=1') == 'example_com'
+def test_load_sites_invalid_root(tmp_path):
+    """Ensure YAML without 'sites' key raises ValueError."""
+    yaml_path = tmp_path / 'sites.yaml'
+    yaml_path.write_text("{}", encoding='utf-8')
+    with pytest.raises(ValueError):
+        load_sites_from_yaml(yaml_path)
 
 
-class TestReadSitesFromXlsx:
-    """Tests for reading sites from Excel files."""
-    
-    def test_missing_file(self):
-        """Test error handling for missing file."""
-        with pytest.raises(FileNotFoundError):
-            read_sites_from_xlsx(
-                Path('nonexistent.xlsx'),
-                row_range=(16, 68)
-            )
-    
-    def test_invalid_sheet_index(self, tmp_path):
-        """Test error handling for invalid sheet index."""
-        # This test would require creating a mock Excel file
-        # For now, we'll skip the implementation
-        pass
+def test_load_sites_ok(tmp_path):
+    """Load a valid sites YAML and validate defaults."""
+    yaml_path = tmp_path / 'sites.yaml'
+    yaml_path.write_text(
+        """
+sites:
+  - name: example
+    url: https://example.com
+    keywords: [bio, ricerca]
+        """.strip(),
+        encoding='utf-8'
+    )
+
+    sites = load_sites_from_yaml(yaml_path)
+    assert len(sites) == 1
+    site = sites[0]
+    assert site['name'] == 'example'
+    assert site['url'] == 'https://example.com'
+    assert site['js'] is False
+    assert site['next_selector'] is None
+    assert site['max_pages'] == 1
+    assert site['keywords'] == ['bio', 'ricerca']
+
+
+def test_load_keywords_ok(tmp_path):
+    """Load keywords YAML and build reverse mapping."""
+    yaml_path = tmp_path / 'keywords.yaml'
+    yaml_path.write_text(
+        """
+keywords:
+  mario@email.it:
+    - bio
+    - ricerca
+  anna@email.it:
+    - ricerca
+        """.strip(),
+        encoding='utf-8'
+    )
+
+    keywords = load_keywords_from_yaml(yaml_path)
+    assert set(keywords.keys()) == {'mario@email.it', 'anna@email.it'}
+    assert keywords['mario@email.it'] == ['bio', 'ricerca']
+
+    reverse = create_keyword_to_recipients_map(keywords)
+    assert reverse['bio'] == ['mario@email.it']
+    assert set(reverse['ricerca']) == {'mario@email.it', 'anna@email.it'}

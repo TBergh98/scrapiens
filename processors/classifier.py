@@ -8,6 +8,7 @@ import threading
 from openai import OpenAI
 from utils.logger import get_logger
 from utils.file_utils import save_json, load_json
+from utils.cache import CacheManager
 from config.settings import get_config
 
 logger = get_logger(__name__)
@@ -197,15 +198,21 @@ class LinkClassifier:
         self,
         input_file: Path,
         output_file: Path,
-        batch_size: int = 50
+        keywords_dict: Optional[Dict[str, List[str]]] = None,
+        batch_size: int = 50,
+        extract_details: bool = True,
+        force_refresh: bool = False
     ) -> Dict[str, Any]:
         """
-        Load links from a JSON file, classify them, and save results.
+        Load links from a JSON file, classify them, extract grant details, and save results.
         
         Args:
             input_file: Path to input JSON file (from deduplicator)
             output_file: Path to save classification results
+            keywords_dict: Optional mapping of email to keywords for enriching results
             batch_size: Number of links per batch
+            extract_details: Whether to extract grant details (default True)
+            force_refresh: If True, ignore cache and re-extract
             
         Returns:
             Classification results with statistics
@@ -214,13 +221,137 @@ class LinkClassifier:
         
         data = load_json(input_file)
         
-        if not data or 'unique_links' not in data:
-            raise ValueError(f"Invalid input file format: {input_file}")
+        if not data:
+            raise ValueError(f"Invalid or empty input file: {input_file}")
         
-        links = data['unique_links']
+        # Handle new format with links_with_keywords or legacy format
+        links_dict = data.get('links_with_keywords', {})
+        if not links_dict:
+            # Legacy format support: just unique_links list
+            unique_links = data.get('unique_links', [])
+            links_dict = {link: [] for link in unique_links}
+        
+        links = list(links_dict.keys())
+        
+        if not links:
+            logger.warning("No links found in input file")
+            return {
+                'grants': [],
+                'notifications': {},
+                'stats': {
+                    'total_links': 0,
+                    'single_grant': 0,
+                    'grant_list': 0,
+                    'other': 0,
+                    'error': 0,
+                    'avg_confidence': 0,
+                    'extracted': 0,
+                    'extraction_success': 0
+                },
+                'model': self.model
+            }
         
         # Classify
+        logger.info("Step 1/3: Classifying URLs")
         classifications = self.classify_links(links, batch_size=batch_size)
+        
+        # Extract grant details for single_grant URLs
+        grants = []
+        
+        if extract_details:
+            logger.info("Step 2/3: Extracting grant details")
+            
+            # Filter only single_grant URLs
+            single_grant_urls = [
+                c['url'] for c in classifications 
+                if c['category'] == 'single_grant'
+            ]
+            
+            grant_list_count = sum(1 for c in classifications if c['category'] == 'grant_list')
+            if grant_list_count > 0:
+                logger.info(f"Ignoring {grant_list_count} URLs classified as 'grant_list' (multi-grant pages)")
+            
+            if single_grant_urls:
+                logger.info(f"Extracting details from {len(single_grant_urls)} single grant URLs")
+                
+                # Import extractor here to avoid circular dependency
+                from processors.extractor import GrantExtractor
+                
+                # Initialize cache
+                cache_manager = CacheManager()
+                
+                # Extract with parallel processing
+                extractor = GrantExtractor()
+                extracted_grants = extractor.extract_batch_parallel(
+                    single_grant_urls,
+                    cache_manager=cache_manager,
+                    force_refresh=force_refresh
+                )
+                
+                # Merge classification and extraction data
+                classification_map = {c['url']: c for c in classifications}
+                
+                for grant in extracted_grants:
+                    url = grant['url']
+                    classification = classification_map.get(url, {})
+                    
+                    # Match keywords to actual content
+                    matched_keywords = []
+                    recipients = []
+                    
+                    if keywords_dict and grant.get('extraction_success'):
+                        matched_keywords, recipients = self._match_keywords_to_content(
+                            grant,
+                            keywords_dict
+                        )
+                    
+                    # Build grant entry
+                    grant_entry = {
+                        'url': url,
+                        'title': grant.get('title'),
+                        'organization': grant.get('organization'),
+                        'deadline': grant.get('deadline'),
+                        'funding_amount': grant.get('funding_amount'),
+                        'abstract': grant.get('abstract'),
+                        'category': classification.get('category', 'single_grant'),
+                        'classification_confidence': classification.get('confidence', 0),
+                        'classification_reason': classification.get('reason', ''),
+                        'extraction_success': grant.get('extraction_success', False),
+                        'extraction_date': grant.get('extraction_date'),
+                        'extraction_error': grant.get('error'),
+                        'matched_keywords': matched_keywords,
+                        'recipients': recipients
+                    }
+                    
+                    grants.append(grant_entry)
+            else:
+                logger.warning("No single_grant URLs found to extract")
+        else:
+            logger.info("Skipping grant details extraction (extract_details=False)")
+        
+        # Build notifications mapping
+        logger.info("Step 3/3: Building notifications")
+        notifications = {}
+        
+        for grant in grants:
+            if not grant.get('recipients'):
+                continue
+            
+            for email in grant['recipients']:
+                if email not in notifications:
+                    notifications[email] = {
+                        'matched_grants': [],
+                        'total_grants': 0
+                    }
+                
+                notifications[email]['matched_grants'].append({
+                    'url': grant['url'],
+                    'title': grant['title'],
+                    'deadline': grant['deadline'],
+                    'funding_amount': grant['funding_amount'],
+                    'matched_keywords': grant['matched_keywords']
+                })
+                notifications[email]['total_grants'] += 1
         
         # Calculate statistics
         stats = {
@@ -232,11 +363,16 @@ class LinkClassifier:
             'avg_confidence': round(
                 sum(c['confidence'] for c in classifications) / len(classifications),
                 3
-            ) if classifications else 0
+            ) if classifications else 0,
+            'extracted': len(grants),
+            'extraction_success': sum(1 for g in grants if g.get('extraction_success', False)),
+            'total_recipients': len(notifications),
+            'total_matched_grants': sum(n['total_grants'] for n in notifications.values())
         }
         
         results = {
-            'classifications': classifications,
+            'grants': grants,
+            'notifications': notifications,
             'stats': stats,
             'model': self.model
         }
@@ -244,10 +380,57 @@ class LinkClassifier:
         # Save results
         save_json(results, output_file)
         
-        logger.info(f"Classification results saved to {output_file}")
+        logger.info(f"Results saved to {output_file}")
         logger.info(f"Statistics: {stats}")
+        logger.info(f"Total notifications: {len(notifications)} recipients, {stats['total_matched_grants']} matched grants")
         
         return results
+    
+    def _match_keywords_to_content(
+        self,
+        grant_details: Dict[str, Any],
+        keywords_dict: Dict[str, List[str]]
+    ) -> tuple[List[str], List[str]]:
+        """
+        Match keywords to actual grant content (title + abstract).
+        
+        Args:
+            grant_details: Extracted grant details with title and abstract
+            keywords_dict: Mapping of email to keywords
+            
+        Returns:
+            Tuple of (matched_keywords, recipients)
+        """
+        # Get searchable content
+        title = grant_details.get('title', '') or ''
+        abstract = grant_details.get('abstract', '') or ''
+        content = f"{title} {abstract}".lower()
+        
+        if not content.strip():
+            logger.debug(f"No content to match for {grant_details.get('url')}")
+            return [], []
+        
+        # Build reverse mapping: keyword -> list of emails
+        keyword_to_recipients = {}
+        for email, keywords in keywords_dict.items():
+            for keyword in keywords:
+                keyword_lower = str(keyword).strip().lower()
+                if keyword_lower not in keyword_to_recipients:
+                    keyword_to_recipients[keyword_lower] = []
+                if email not in keyword_to_recipients[keyword_lower]:
+                    keyword_to_recipients[keyword_lower].append(email)
+        
+        # Find matched keywords
+        matched_keywords = set()
+        recipients = set()
+        
+        for keyword_lower, emails in keyword_to_recipients.items():
+            if keyword_lower in content:
+                matched_keywords.add(keyword_lower)
+                recipients.update(emails)
+                logger.debug(f"Keyword match: '{keyword_lower}' in {grant_details.get('url')}")
+        
+        return sorted(list(matched_keywords)), sorted(list(recipients))
 
 
 def classify_links(

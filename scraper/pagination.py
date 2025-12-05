@@ -1,8 +1,10 @@
 """Pagination handling for web scraping."""
 
 import time
+import re
 from typing import Optional, Set
 from pathlib import Path
+from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
 from selenium.webdriver.remote.webdriver import WebDriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
@@ -244,13 +246,49 @@ def detect_page_change(
     return page_changed
 
 
+def increment_url_param(url: str, param_name: str, current_value: int) -> str:
+    """
+    Increment a URL parameter value.
+    
+    Args:
+        url: The URL to modify
+        param_name: Name of the parameter to increment
+        current_value: Current value of the parameter
+        
+    Returns:
+        Updated URL with incremented parameter
+    """
+    parsed = urlparse(url)
+    params = parse_qs(parsed.query, keep_blank_values=True)
+    
+    # Update parameter
+    params[param_name] = [str(current_value + 1)]
+    
+    # Rebuild query string
+    new_query = urlencode(params, doseq=True)
+    
+    # Rebuild URL
+    new_url = urlunparse((
+        parsed.scheme,
+        parsed.netloc,
+        parsed.path,
+        parsed.params,
+        new_query,
+        parsed.fragment
+    ))
+    
+    return new_url
+
+
 def handle_pagination(
     driver: WebDriver,
     site_name: str,
     next_selector: Optional[str],
     max_pages: int,
     links: Set[str],
-    js_mode: bool = False
+    js_mode: bool = False,
+    pagination_param: Optional[str] = None,
+    base_url: Optional[str] = None
 ) -> Set[str]:
     """
     Handle pagination for a website.
@@ -262,14 +300,48 @@ def handle_pagination(
         max_pages: Maximum pages to scrape
         links: Set of links collected so far
         js_mode: Whether site uses JavaScript rendering
+        pagination_param: URL parameter to increment for pagination (e.g., "pageNumber", "page")
+        base_url: Base URL with pagination parameter (used with pagination_param)
         
     Returns:
         Updated set of links after pagination
     """
+    # URL-based pagination
+    if pagination_param and base_url and max_pages > 1:
+        logger.info(f"Starting URL-based pagination for {site_name} using parameter '{pagination_param}' (max {max_pages} pages)")
+        
+        # Extract initial page number from base_url
+        parsed = urlparse(base_url)
+        params = parse_qs(parsed.query)
+        current_page = int(params.get(pagination_param, [1])[0])
+        
+        for page_num in range(current_page + 1, current_page + max_pages):
+            try:
+                new_url = increment_url_param(base_url, pagination_param, page_num - 1)
+                logger.info(f"Navigating to page {page_num}: {new_url}")
+                
+                driver.get(new_url)
+                time.sleep(3)
+                
+                if js_mode:
+                    scroll_page_for_lazy_content(driver)
+                
+                # Extract links will be done by caller
+                logger.info(f"Successfully loaded page {page_num}")
+                base_url = new_url  # Update for next iteration
+                
+            except Exception as e:
+                logger.warning(f"Error loading page {page_num}: {e}")
+                break
+        
+        logger.info(f"Completed URL-based pagination for {site_name}")
+        return links
+    
+    # Button-based pagination
     if not next_selector or max_pages <= 1:
         return links
     
-    logger.info(f"Starting pagination for {site_name} (max {max_pages} pages)")
+    logger.info(f"Starting button-based pagination for {site_name} (max {max_pages} pages)")
     
     page_count = 1
     last_url = driver.current_url

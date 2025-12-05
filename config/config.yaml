@@ -4,23 +4,19 @@
 paths:
   # Base directory (can be overridden by BASE_DIR environment variable)
   base_dir: "//nas1/SCS4/UO_Biostatistica/Simonetto/Scraping"
-  # Input Excel file name
-  excel_file: "Elenco nominativi-parole chiave-siti.xlsx"
+  # Input directory for YAML configuration files
+  input_dir: "input"
   # Output directory for extracted links
   output_dir: "all_links"
   # Unified links file (after deduplication)
   unified_links_file: "link_unificati.json"
 
-# Excel Configuration
-excel:
-  # Sheet index (0-based, so 1 means the second sheet)
-  sheet_index: 1
-  # Row ranges for different site categories
-  row_ranges:
-    standard: [16, 68]  # Rows 16-68 (standard websites)
-    problematic: [70, 73]  # Rows 70-73 (problematic websites)
-  # Column containing URLs (1-based, so 1 means column A)
-  url_column: 1
+# Input Files Configuration (YAML format)
+input_files:
+  # Sites configuration file (list of websites to scrape with their keywords)
+  sites_file: "sites.yaml"
+  # Keywords configuration file (email addresses and their keywords of interest)
+  keywords_file: "keywords.yaml"
 
 # Selenium Configuration
 selenium:
@@ -129,6 +125,47 @@ openai:
     
     URLs to classify:
     {urls}
+
+# Grant Details Extraction Configuration
+extractor:
+  # Model to use for grant details extraction
+  model: "gpt-4o"
+  # Selenium page load timeout (seconds)
+  timeout: 10
+  # Number of parallel workers for extraction
+  parallel_workers: 10
+  # Maximum retry attempts for API failures
+  max_retries: 3
+  # Extraction prompt template
+  extraction_prompt: |
+    Analyze the following HTML content from a research grant/call page and extract the following information:
+    
+    1. **title**: The title of the grant/call (string)
+    2. **organization**: The organization offering the grant (string)
+    3. **abstract**: A brief summary or description of the grant (string, max 500 characters)
+    4. **deadline**: The application deadline (CRITICAL: ONLY if EXPLICITLY stated in the text. Return null if not found or ambiguous. Format as YYYY-MM-DD. DO NOT invent or guess dates.)
+    5. **funding_amount**: The funding amount available (string, e.g., "€500,000" or "up to $1M")
+    
+    IMPORTANT RULES:
+    - Return ONLY factual information that is explicitly present in the HTML
+    - For deadline: If you see text like "scadenza: 31/12/2024" or "deadline: December 31, 2024", extract it. If dates are vague like "coming soon" or "TBD", return null
+    - For funding_amount: Look for keywords like "importo", "finanziamento", "budget", "funding", "amount"
+    - If any field cannot be found, return null (not empty string)
+    - Return valid JSON only
+    
+    URL: {url}
+    
+    HTML Content (truncated to first 8000 chars):
+    {html}
+    
+    Return a JSON object with these exact keys: title, organization, abstract, deadline, funding_amount
+
+# Cache Configuration
+cache:
+  # Enable caching of extracted grant details
+  enabled: true
+  # Cache file name (will be saved in output_dir)
+  file: "grants_cache.json"
 
 # Logging Configuration
 logging:

@@ -24,12 +24,40 @@ copy .env.example .env
 
 ## Step 3: Update Configuration
 
-Edit `config/config.yaml` and update the base directory:
+Edit `config/config.yaml` and update the base directory and input directory:
 
 ```yaml
 paths:
   base_dir: "C:/your/working/directory"  # Change this!
-  excel_file: "Elenco nominativi-parole chiave-siti.xlsx"
+  input_dir: "input"
+  output_dir: "all_links"
+  unified_links_file: "link_unificati.json"
+
+input_files:
+  sites_file: "sites.yaml"
+  keywords_file: "keywords.yaml"
+```
+
+Then edit the YAML inputs in `input/`:
+
+`input/sites.yaml`
+```yaml
+sites:
+  - name: esempio_universita
+    url: https://www.universita-esempio.it/bandi
+    js: false
+    next_selector: null
+    max_pages: 1
+    keywords: [ricerca, bandi]
+```
+
+`input/keywords.yaml`
+```yaml
+keywords:
+  mario@email.it:
+    - ricerca
+  anna@email.it:
+    - bandi
 ```
 
 ## Step 4: Run a Quick Test
@@ -43,7 +71,7 @@ python examples/example_single_site.py
 ## Step 5: Run Your First Scrape
 
 ```bash
-# Scrape websites from Excel file
+# Scrape websites from YAML files
 python main.py scrape
 
 # Deduplicate the results
@@ -62,11 +90,8 @@ python main.py pipeline
 ## Common Commands
 
 ```bash
-# Scrape standard sites
 python main.py scrape
-
-# Scrape problematic sites
-python main.py scrape --problematic
+python main.py scrape
 
 # See all options
 python main.py --help
@@ -75,17 +100,17 @@ python main.py --help
 ## Expected Output
 
 After running, you should see:
-- `all_links/` directory with `.txt` files (one per site)
-- `link_unificati.json` with deduplicated links
-- `link_unificati_classified.json` with AI classifications
+- `all_links/` directory with `.json` files (one per site, containing URLs → keywords)
+- `link_unificati.json` with deduplicated links (including merged keywords)
+- `link_unificati_classified.json` with AI classifications and recipients per link
 
 ## Troubleshooting
 
 **Problem**: "OPENAI_API_KEY not found"
 - **Solution**: Make sure you created `.env` file and added your API key
 
-**Problem**: "Excel file not found"
-- **Solution**: Update `paths.base_dir` in `config/config.yaml`
+**Problem**: "Sites YAML file not found"
+- **Solution**: Check `paths.input_dir` and `input_files.sites_file` in `config/config.yaml`
 
 **Problem**: "ChromeDriver not found"
 - **Solution**: Make sure Chrome browser is installed and updated

@@ -36,7 +36,8 @@ scrapiens/
 │   └── config.yaml        # Main configuration file
 ├── scraper/               # Web scraping modules
 │   ├── __init__.py
-│   ├── excel_reader.py    # Excel input handling
+│   ├── sites_reader.py    # YAML sites input
+│   ├── keywords_reader.py # YAML keywords/email input
 │   ├── selenium_utils.py  # Cookie handling, overlays
 │   ├── link_extractor.py  # Core scraping logic
 │   └── pagination.py      # Pagination handling
@@ -52,7 +53,7 @@ scrapiens/
 │   ├── __init__.py
 │   ├── conftest.py
 │   ├── test_config.py
-│   ├── test_excel_reader.py
+│   ├── test_excel_reader.py  # YAML loader tests
 │   └── test_deduplicator.py
 ├── examples/              # Example scripts
 │   ├── README.md
@@ -103,10 +104,10 @@ scrapiens/
    ```
 
 5. **Configure application:**
-   Edit `config/config.yaml`:
-   - Set `paths.base_dir` to your working directory
-   - Update `paths.excel_file` location
-   - Adjust `excel.row_ranges` if needed
+  Edit `config/config.yaml`:
+  - Set `paths.base_dir` to your working directory
+  - Ensure `paths.input_dir` points to the folder with `sites.yaml` and `keywords.yaml`
+  - Optionally adjust output paths
 
 ## Configuration
 
@@ -115,16 +116,14 @@ scrapiens/
 ```yaml
 paths:
   base_dir: "/your/base/dir"
-  excel_file: "Elenco nominativi-parole chiave-siti.xlsx"
+  input_dir: "input"
   output_dir: "all_links"
   unified_links_file: "link_unificati.json"
 
-excel:
-  sheet_index: 1
-  row_ranges:
-    standard: [16, 68]
-    problematic: [70, 73]
-  url_column: 1
+input_files:
+  sites_file: "sites.yaml"
+  keywords_file: "keywords.yaml"
+```
 
 selenium:
   headless: true
@@ -162,30 +161,24 @@ python main.py pipeline
 
 #### Individual Commands
 
-**1. Scrape websites:**
+**1. Scrape websites (from YAML):**
 ```bash
-# Scrape standard sites (rows 16-68)
 python main.py scrape
-
-# Scrape problematic sites (rows 70-73)
-python main.py scrape --problematic
 
 # Specify custom output directory
 python main.py scrape -o custom_output/
 ```
 
-**2. Deduplicate links:**
+**2. Deduplicate links (JSON with keywords):**
 ```bash
-# Deduplicate from default directory
 python main.py deduplicate
 
 # Specify custom input/output
 python main.py deduplicate -i input_dir/ -o deduplicated.json
 ```
 
-**3. Classify links:**
+**3. Classify links (adds recipients per keyword):**
 ```bash
-# Classify using default settings
 python main.py classify
 
 # Specify custom input/output and model
@@ -210,41 +203,58 @@ python main.py pipeline --help
 You can also use Scrapiens as a library in your Python code:
 
 ```python
-from scraper import load_sites_from_config, scrape_sites
-from processors import deduplicate_links, LinkClassifier
+from pathlib import Path
+from config import get_config
+from scraper import load_sites_from_yaml, load_keywords_from_yaml, scrape_sites
+from processors import deduplicate_from_directory, LinkClassifier
 
-# Load sites from Excel
-sites = load_sites_from_config(category='standard')
+config = get_config()
+input_dir = config.get_full_path('paths.input_dir')
+sites = load_sites_from_yaml(input_dir / config.get('input_files.sites_file'))
+keywords = load_keywords_from_yaml(input_dir / config.get('input_files.keywords_file'))
 
-# Scrape sites
-results = scrape_sites(sites, output_dir='output/')
+# Scrape
+scrape_dir = config.get_full_path('paths.output_dir')
+scrape_results = scrape_sites(sites, output_dir=scrape_dir, save_individual=True)
 
-# Deduplicate
-dedup_results = deduplicate_links(results)
+# Deduplicate (preserves keywords)
+dedup_file = config.get_full_path('paths.unified_links_file')
+dedup_results = deduplicate_from_directory(scrape_dir, dedup_file)
 
-# Classify
+# Classify (adds recipients)
 classifier = LinkClassifier()
-classifications = classifier.classify_links(dedup_results['unique_links'])
+classifier.classify_from_file(
+  input_file=dedup_file,
+  output_file=dedup_file.parent / 'classified.json',
+  keywords_dict=keywords
+)
 ```
 
 See the `examples/` directory for more detailed usage examples.
 
-## Excel Input Format
+## YAML Input Format
 
-The project expects an Excel file with the following structure:
+### `input/sites.yaml`
 
-- **Sheet**: Second sheet (index 1)
-- **Column A**: Website URLs
-- **Rows 16-68**: Standard websites
-- **Rows 70-73**: Problematic websites (optional)
+```yaml
+sites:
+  - name: esempio_universita
+    url: https://www.universita-esempio.it/bandi
+    js: false
+    next_selector: null
+    max_pages: 1
+    keywords: [ricerca, bandi]
+```
 
-Example:
+### `input/keywords.yaml`
 
-| A (URLs) |
-|----------|
-| https://example.com/grants |
-| https://example.org/funding |
-| https://example.net/calls |
+```yaml
+keywords:
+  mario@email.it:
+    - ricerca
+  anna@email.it:
+    - bandi
+```
 
 ## Output Formats
 
@@ -258,14 +268,24 @@ https://example.com/grant/2023/innovation-award
 https://example.com/about
 ```
 
-### Deduplicated Links (`.json`)
+### Scraped Links (`*_links.json` per site)
 
 ```json
 {
-  "unique_links": [
-    "https://example.com/grant/2024/research-funding",
-    "https://example.org/call/doctoral-fellowship"
-  ],
+  "https://example.com/grant/2024/research-funding": ["ricerca"],
+  "https://example.com/grant/2023/innovation-award": ["innovazione"],
+  "https://example.com/about": ["ricerca"]
+}
+```
+
+### Deduplicated Links (`link_unificati.json`)
+
+```json
+{
+  "links_with_keywords": {
+    "https://example.com/grant/2024/research-funding": ["ricerca"],
+    "https://example.org/call/doctoral-fellowship": ["innovazione", "ricerca"]
+  },
   "stats": {
     "total_sites": 3,
     "total_links_before": 150,
@@ -274,13 +294,13 @@ https://example.com/about
     "deduplication_rate": 20.0
   },
   "sites": {
-    "example_com": ["url1", "url2"],
-    "example_org": ["url3", "url4"]
+    "example_com": {"url1": ["ricerca"]},
+    "example_org": {"url2": ["innovazione"]}
   }
 }
 ```
 
-### Classified Links (`.json`)
+### Classified Links (`link_unificati_classified.json`)
 
 ```json
 {
@@ -289,13 +309,9 @@ https://example.com/about
       "url": "https://example.com/grant/2024/research-funding",
       "category": "single_grant",
       "confidence": 0.95,
-      "reason": "URL contains 'grant' and specific year, likely a single grant page"
-    },
-    {
-      "url": "https://example.com/grants/list",
-      "category": "grant_list",
-      "confidence": 0.88,
-      "reason": "URL suggests a list of multiple grants"
+      "reason": "URL contains 'grant' and specific year, likely a single grant page",
+      "keywords": ["ricerca"],
+      "recipients": ["mario@email.it"]
     }
   ],
   "stats": {

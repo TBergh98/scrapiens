@@ -9,6 +9,7 @@ from .file_utils import (
     aggregate_link_files,
     ensure_directory
 )
+from .cache import CacheManager, get_cache_manager
 
 __all__ = [
     'setup_logger',
@@ -18,5 +19,7 @@ __all__ = [
     'save_json',
     'load_json',
     'aggregate_link_files',
-    'ensure_directory'
+    'ensure_directory',
+    'CacheManager',
+    'get_cache_manager'
 ]

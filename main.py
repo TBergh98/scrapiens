@@ -5,41 +5,51 @@ import argparse
 from pathlib import Path
 from config import get_config
 from utils import setup_logger, get_logger
-from scraper import load_sites_from_config, scrape_sites
+from scraper import (
+    load_sites_from_yaml,
+    load_keywords_from_yaml,
+    scrape_sites,
+)
 from processors import deduplicate_from_directory, LinkClassifier
 
 # Setup logger
 logger = get_logger(__name__)
 
 
+def _load_sites_and_keywords():
+    """Helper to load sites and keywords from YAML files defined in config."""
+    config = get_config()
+    input_dir = config.get_full_path('paths.input_dir')
+
+    sites_path = input_dir / config.get('input_files.sites_file')
+    keywords_path = input_dir / config.get('input_files.keywords_file')
+
+    sites = load_sites_from_yaml(sites_path)
+    keywords = load_keywords_from_yaml(keywords_path)
+
+    return sites, keywords
+
+
 def cmd_scrape(args):
     """Execute the scraping command."""
     logger.info("=== Starting Link Scraping ===")
-    
-    config = get_config()
-    
-    # Determine category
-    category = 'problematic' if args.problematic else 'standard'
-    
-    # Load sites
+
+    # Load sites (keywords are loaded later in pipeline/classify)
     try:
-        sites = load_sites_from_config(category=category)
+        sites, _ = _load_sites_and_keywords()
     except Exception as e:
         logger.error(f"Failed to load sites: {e}")
         return 1
-    
+
     if not sites:
-        logger.error(f"No sites loaded for category: {category}")
+        logger.error("No sites loaded from YAML configuration")
         return 1
-    
+
+    config = get_config()
+
     # Determine output directory
-    if args.output:
-        output_dir = Path(args.output)
-    else:
-        output_dir = config.get_full_path('paths.output_dir')
-        if args.problematic:
-            output_dir = output_dir.parent / f"{output_dir.name}_prob"
-    
+    output_dir = Path(args.output) if args.output else config.get_full_path('paths.output_dir')
+
     # Scrape sites
     try:
         results = scrape_sites(
@@ -48,10 +58,10 @@ def cmd_scrape(args):
             save_individual=True,
             save_combined=args.save_json
         )
-        
+
         logger.info(f"=== Scraping Complete: {len(results)} sites processed ===")
         return 0
-        
+
     except Exception as e:
         logger.error(f"Scraping failed: {e}", exc_info=True)
         return 1
@@ -97,39 +107,50 @@ def cmd_deduplicate(args):
 def cmd_classify(args):
     """Execute the classification command."""
     logger.info("=== Starting Link Classification ===")
-    
+
     config = get_config()
-    
+
     # Determine input file
-    if args.input:
-        input_file = Path(args.input)
-    else:
-        input_file = config.get_full_path('paths.unified_links_file')
-    
+    input_file = Path(args.input) if args.input else config.get_full_path('paths.unified_links_file')
+
     # Determine output file
-    if args.output:
-        output_file = Path(args.output)
-    else:
-        output_file = input_file.parent / f"{input_file.stem}_classified.json"
-    
-    # Classify
+    output_file = Path(args.output) if args.output else input_file.parent / f"{input_file.stem}_classified.json"
+
+    # Load keywords
+    try:
+        _, keywords = _load_sites_and_keywords()
+    except Exception as e:
+        logger.error(f"Failed to load keywords: {e}")
+        return 1
+
+    # Classify and extract
     try:
         classifier = LinkClassifier(model=args.model)
         results = classifier.classify_from_file(
             input_file=input_file,
             output_file=output_file,
-            batch_size=args.batch_size
+            keywords_dict=keywords,
+            batch_size=args.batch_size,
+            extract_details=args.extract_details,
+            force_refresh=args.force_refresh
         )
-        
+
         logger.info("=== Classification Complete ===")
         logger.info(f"Total links: {results['stats']['total_links']}")
         logger.info(f"Single grants: {results['stats']['single_grant']}")
         logger.info(f"Grant lists: {results['stats']['grant_list']}")
         logger.info(f"Other: {results['stats']['other']}")
+        
+        if args.extract_details:
+            logger.info(f"Extracted: {results['stats']['extracted']}")
+            logger.info(f"Extraction success: {results['stats']['extraction_success']}")
+            logger.info(f"Total recipients: {results['stats']['total_recipients']}")
+            logger.info(f"Total matched grants: {results['stats']['total_matched_grants']}")
+        
         logger.info(f"Average confidence: {results['stats']['avg_confidence']}")
-        
+
         return 0
-        
+
     except Exception as e:
         logger.error(f"Classification failed: {e}", exc_info=True)
         return 1
@@ -156,22 +177,25 @@ def cmd_pipeline(args):
     dedup_args = argparse.Namespace(
         input=args.scrape_output,
         output=args.dedup_output,
-        pattern="*_links.txt"
+        pattern="*_links.json"
     )
     
     if cmd_deduplicate(dedup_args) != 0:
         logger.error("Pipeline failed at deduplication step")
         return 1
     
-    # Step 3: Classify
-    logger.info("\n--- Step 3/3: Classifying Links ---")
+    # Step 3: Classify and Extract
+    logger.info("\n--- Step 3/3: Classifying Links and Extracting Grant Details ---")
     classify_args = argparse.Namespace(
         input=args.dedup_output,
         output=args.output,
         model=args.model,
-        batch_size=args.batch_size
+        batch_size=args.batch_size,
+        extract_details=True,
+        force_refresh=getattr(args, 'force_refresh', False)
     )
     
+    # Inject keywords into classify step
     if cmd_classify(classify_args) != 0:
         logger.error("Pipeline failed at classification step")
         return 1
@@ -235,8 +259,8 @@ Examples:
     )
     parser_dedup.add_argument(
         '-p', '--pattern',
-        default='*_links.txt',
-        help='File pattern to match (default: *_links.txt)'
+        default='*_links.json',
+        help='File pattern to match (default: *_links.json)'
     )
     
     # Classify command
@@ -258,6 +282,18 @@ Examples:
         type=int,
         default=50,
         help='Number of links per batch (default: 50)'
+    )
+    parser_classify.add_argument(
+        '--no-extract',
+        dest='extract_details',
+        action='store_false',
+        default=True,
+        help='Skip grant details extraction (classify only)'
+    )
+    parser_classify.add_argument(
+        '--force-refresh',
+        action='store_true',
+        help='Ignore cache and re-extract all grants'
     )
     
     # Pipeline command
@@ -288,6 +324,11 @@ Examples:
         type=int,
         default=50,
         help='Number of links per batch (default: 50)'
+    )
+    parser_pipeline.add_argument(
+        '--force-refresh',
+        action='store_true',
+        help='Ignore cache and re-extract all grants'
     )
     
     # Parse arguments

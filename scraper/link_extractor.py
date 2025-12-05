@@ -81,6 +81,7 @@ def scrape_site(driver: webdriver.Chrome, site_config: Dict) -> Set[str]:
             - js: Whether JavaScript rendering is needed
             - next_selector: CSS selector for pagination (None if no pagination)
             - max_pages: Maximum pages to scrape
+            - pagination_param: URL parameter to increment for pagination (optional)
             
     Returns:
         Set of all extracted URLs
@@ -92,6 +93,7 @@ def scrape_site(driver: webdriver.Chrome, site_config: Dict) -> Set[str]:
     js = site_config.get('js', False)
     next_selector = site_config.get('next_selector')
     max_pages = site_config.get('max_pages', 1)
+    pagination_param = site_config.get('pagination_param')
     
     logger.info(f"Scraping links from {name}: {url}")
     
@@ -145,6 +147,31 @@ def scrape_site(driver: webdriver.Chrome, site_config: Dict) -> Set[str]:
             # Check pagination
             page_count += 1
             
+            # URL-based pagination
+            if pagination_param and page_count < max_pages:
+                try:
+                    from scraper.pagination import increment_url_param
+                    
+                    current_page_num = page_count  # We're currently on page_count, next is page_count+1
+                    new_url = increment_url_param(url, pagination_param, current_page_num)
+                    
+                    logger.info(f"Loading page {page_count + 1} via URL parameter: {new_url}")
+                    driver.get(new_url)
+                    
+                    wait_for_page_ready(driver)
+                    time.sleep(2)
+                    
+                    if js:
+                        scroll_page_for_lazy_content(driver)
+                    
+                    url = new_url  # Update for next iteration
+                    continue
+                    
+                except Exception as e:
+                    logger.warning(f"Error loading page via URL parameter: {e}")
+                    break
+            
+            # Button-based pagination
             if not next_selector or page_count >= max_pages:
                 break
             
@@ -210,10 +237,15 @@ def scrape_sites(
                 links = scrape_site(driver, site)
                 results[name] = sorted(list(links))
                 
-                # Save individual file
+                # Save individual file in JSON format (no keywords)
                 if save_individual:
-                    output_file = output_dir / f"{name}_links.txt"
-                    save_links_to_file(links, output_file)
+                    output_file = output_dir / f"{name}_links.json"
+                    # Create dictionary mapping each link to empty array (keywords removed)
+                    links_json = {
+                        link: []
+                        for link in links
+                    }
+                    save_json(links_json, output_file)
                 
             except Exception as e:
                 logger.error(f"Failed to scrape {name}: {e}", exc_info=True)

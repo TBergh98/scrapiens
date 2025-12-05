@@ -14,7 +14,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from scraper import scrape_sites
-from processors import deduplicate_links, LinkClassifier
+from processors import deduplicate_from_directory, LinkClassifier
 from utils import setup_logger, save_json
 
 # Setup logging
@@ -39,14 +39,16 @@ def main():
             'url': 'https://example.com/grants',
             'js': False,
             'next_selector': None,
-            'max_pages': 1
+            'max_pages': 1,
+            'keywords': ['ricerca', 'bandi']
         },
         {
             'name': 'research_site_2',
             'url': 'https://example.org/funding',
             'js': False,
             'next_selector': None,
-            'max_pages': 1
+            'max_pages': 1,
+            'keywords': ['innovazione']
         }
     ]
     
@@ -56,7 +58,7 @@ def main():
         save_individual=True,
         save_combined=True
     )
-    
+
     total_scraped = sum(len(links) for links in scraped_results.values())
     logger.info(f"Scraped {total_scraped} total links from {len(sites)} sites")
     
@@ -66,59 +68,85 @@ def main():
     
     logger.info("\n=== Step 2: Deduplicating Links ===")
     
-    dedup_results = deduplicate_links(scraped_results)
-    
+    dedup_file = output_dir / 'deduplicated_links.json'
+    dedup_results = deduplicate_from_directory(
+        input_dir=output_dir / 'scraped_links',
+        output_file=dedup_file,
+        file_pattern='*_links.json'
+    )
+
     logger.info(f"Unique links: {dedup_results['stats']['unique_links']}")
     logger.info(f"Duplicates removed: {dedup_results['stats']['duplicates_removed']}")
     
-    # Save deduplicated links
-    dedup_file = output_dir / 'deduplicated_links.json'
-    save_json(dedup_results, dedup_file)
-    
     # ==========================================
-    # Step 3: Classify links
+    # Step 3: Classify links and extract grant details
     # ==========================================
     
-    logger.info("\n=== Step 3: Classifying Links ===")
+    logger.info("\n=== Step 3: Classifying Links and Extracting Grant Details ===")
     
     # Note: This requires OPENAI_API_KEY to be set
     try:
+        # Define keywords for matching
+        keywords = {
+            'mario@email.it': ['ricerca', 'innovazione'],
+            'anna@email.it': ['bandi', 'grant']
+        }
+        
         classifier = LinkClassifier()
         
-        classifications = classifier.classify_links(
-            links=dedup_results['unique_links'][:20],  # Classify first 20 for demo
-            batch_size=10
+        # Classify and extract grant details
+        classified_file = output_dir / 'classified_with_details.json'
+        results = classifier.classify_from_file(
+            input_file=dedup_file,
+            output_file=classified_file,
+            keywords_dict=keywords,
+            batch_size=10,
+            extract_details=True,
+            force_refresh=False
         )
         
-        # Calculate statistics
-        stats = {}
-        for result in classifications:
-            cat = result['category']
-            stats[cat] = stats.get(cat, 0) + 1
+        logger.info(f"Classification and extraction complete:")
+        logger.info(f"  Total links: {results['stats']['total_links']}")
+        logger.info(f"  Single grants: {results['stats']['single_grant']}")
+        logger.info(f"  Grant lists: {results['stats']['grant_list']}")
+        logger.info(f"  Other: {results['stats']['other']}")
+        logger.info(f"  Extracted: {results['stats']['extracted']}")
+        logger.info(f"  Extraction success: {results['stats']['extraction_success']}")
+        logger.info(f"  Total recipients: {results['stats']['total_recipients']}")
+        logger.info(f"  Total matched grants: {results['stats']['total_matched_grants']}")
         
-        logger.info(f"Classification complete:")
-        for category, count in stats.items():
-            logger.info(f"  {category}: {count}")
+        # Show sample notifications
+        if results['notifications']:
+            logger.info("\n=== Sample Notifications ===")
+            for email, notification in list(results['notifications'].items())[:2]:
+                logger.info(f"\n{email}:")
+                logger.info(f"  Total matched grants: {notification['total_grants']}")
+                for grant in notification['matched_grants'][:2]:
+                    logger.info(f"  - {grant['title']}")
+                    logger.info(f"    URL: {grant['url']}")
+                    logger.info(f"    Deadline: {grant['deadline']}")
+                    logger.info(f"    Keywords: {grant['matched_keywords']}")
         
-        # Save final results
+        # Save final results summary
         final_results = {
             'scraping_stats': {
                 'total_sites': len(sites),
                 'total_links_scraped': total_scraped
             },
             'deduplication_stats': dedup_results['stats'],
-            'classification_stats': stats,
-            'classifications': classifications
+            'classification_stats': results['stats'],
+            'notifications_count': len(results['notifications'])
         }
         
-        final_file = output_dir / 'final_results.json'
+        final_file = output_dir / 'final_summary.json'
         save_json(final_results, final_file)
         
         logger.info(f"\n=== Pipeline Complete ===")
-        logger.info(f"Final results saved to {final_file}")
+        logger.info(f"Full results saved to {classified_file}")
+        logger.info(f"Summary saved to {final_file}")
         
     except Exception as e:
-        logger.error(f"Classification failed: {e}")
+        logger.error(f"Classification/extraction failed: {e}", exc_info=True)
         logger.info("Make sure OPENAI_API_KEY is set in .env file")
 
 
