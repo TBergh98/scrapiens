@@ -2,6 +2,7 @@
 
 import time
 import json
+import re
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -13,8 +14,84 @@ from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_excep
 from openai import OpenAI, RateLimitError, APIError
 from utils.logger import get_logger
 from config.settings import get_config
+from scraper.selenium_utils import click_tabs_and_expandable_elements
+from processors.site_profiles import SiteProfileManager
 
 logger = get_logger(__name__)
+
+
+def extract_deadline_with_regex(html_content: str) -> Optional[str]:
+    """
+    Fallback function to extract deadline using regex patterns.
+    
+    Tries multiple regex patterns to find dates in common deadline formats.
+    Used when GPT extraction fails or returns null.
+    
+    Args:
+        html_content: HTML content to search
+        
+    Returns:
+        Deadline in YYYY-MM-DD format, or None if not found
+    """
+    
+    # Remove HTML tags and decode entities for cleaner text
+    text = re.sub(r'<[^>]+>', ' ', html_content)
+    text = re.sub(r'&nbsp;', ' ', text)
+    text = re.sub(r'&lt;', '<', text)
+    text = re.sub(r'&gt;', '>', text)
+    
+    # Patterns to search for deadline-related text (case insensitive)
+    deadline_prefixes = [
+        r'scadenza[:\s]*',
+        r'deadline[:\s]*',
+        r'data limite[:\s]*',
+        r'application deadline[:\s]*',
+        r'closing date[:\s]*',
+        r'application closes[:\s]*',
+        r'ends on[:\s]*',
+        r'data di chiusura[:\s]*',
+        r'data di scadenza[:\s]*',
+        r'ultimo giorno[:\s]*',
+        r'last day[:\s]*',
+    ]
+    
+    # Date patterns (multiple formats)
+    date_patterns = [
+        # DD/MM/YYYY or DD-MM-YYYY
+        r'(?:0?[1-9]|[12][0-9]|3[01])[/-](?:0?[1-9]|1[012])[/-](20\d{2})',
+        # YYYY-MM-DD or YYYY/MM/DD
+        r'(20\d{2})[/-](?:0?[1-9]|1[012])[/-](?:0?[1-9]|[12][0-9]|3[01])',
+        # Month names: 31 December 2024, Dec 31 2024, etc.
+        r'(?:January|February|March|April|May|June|July|August|September|October|November|December|'
+        r'Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec|'
+        r'Gennaio|Febbraio|Marzo|Aprile|Maggio|Giugno|Luglio|Agosto|Settembre|Ottobre|Novembre|Dicembre)\s+(\d{1,2}),?\s+(20\d{2})',
+    ]
+    
+    # Search for deadline with prefix
+    for prefix in deadline_prefixes:
+        # Look for the pattern within ~200 chars after the prefix
+        match = re.search(
+            prefix + r'[^\n]*?(' + '|'.join(date_patterns) + ')',
+            text,
+            re.IGNORECASE | re.DOTALL
+        )
+        
+        if match:
+            date_str = match.group(0).split(prefix)[1].strip()
+            
+            try:
+                # Try to parse the date
+                parsed = date_parser.parse(date_str, dayfirst=True)
+                
+                # Only accept dates in the future (or current year)
+                if parsed.year >= datetime.now().year - 1:
+                    logger.debug(f"Extracted deadline via regex: {parsed.strftime('%Y-%m-%d')}")
+                    return parsed.strftime('%Y-%m-%d')
+            except:
+                continue
+    
+    logger.debug("No deadline found via regex patterns")
+    return None
 
 
 class GrantExtractor:
@@ -37,12 +114,17 @@ class GrantExtractor:
         self.parallel_workers = config.get('extractor.parallel_workers', 10)
         
         self.client = OpenAI(api_key=self.api_key)
+        self.site_profiles = SiteProfileManager()
         
         logger.info(f"Initialized GrantExtractor with model: {self.model}")
     
-    def _create_driver(self) -> webdriver.Chrome:
+    def _create_driver(self, url: str) -> webdriver.Chrome:
         """Create a Selenium WebDriver instance for extraction."""
         config = get_config()
+        
+        # Get recommended settings based on site profile
+        recommended = self.site_profiles.get_recommended_settings(url)
+        timeout = recommended.get('page_load_timeout', config.get('selenium.page_load_timeout', 8))
         
         chrome_options = Options()
         chrome_options.add_argument('--headless')
@@ -52,7 +134,7 @@ class GrantExtractor:
         
         driver = webdriver.Chrome(options=chrome_options)
         driver.implicitly_wait(5)
-        driver.set_page_load_timeout(self.timeout)
+        driver.set_page_load_timeout(timeout)
         
         return driver
     
@@ -86,21 +168,29 @@ Analyze the following HTML content from a research grant/call page and extract t
 
 IMPORTANT RULES:
 - Return ONLY factual information that is explicitly present in the HTML
-- For deadline: If you see text like "scadenza: 31/12/2024" or "deadline: December 31, 2024", extract it. If dates are vague like "coming soon" or "TBD", return null
-- For funding_amount: Look for keywords like "importo", "finanziamento", "budget", "funding", "amount"
-- If any field cannot be found, return null (not empty string)
+- For deadline: Search in multiple places:
+  * Visible text (scadenza, deadline, data limite, application deadline, closing date)
+  * JSON-LD structured data: Look for "deadline", "endDate", "expires", "applicationDeadline" fields
+  * HTML5 data attributes: Check data-deadline, data-date, data-end, data-expiration attributes
+  * HTML comments containing dates: <!-- deadline: ... --> or similar
+  * Script tags with JSON: <script type="application/ld+json"> or similar
+  * Meta tags: Check og:expiration, article:published_time, article:expiration_time
+  * If you see text like "scadenza: 31/12/2024" or "deadline: December 31, 2024", extract it
+  * If dates are vague like "coming soon" or "TBD", return null
+- For funding_amount: Look for keywords like "importo", "finanziamento", "budget", "funding", "amount" in visible text and data attributes
+- If any field cannot be found explicitly, return null (not empty string)
 - Return valid JSON only
 
 URL: {url}
 
-HTML Content (truncated to first 8000 chars):
+HTML Content (truncated to first 15000 chars):
 {html}
 
 Return a JSON object with these exact keys: title, organization, abstract, deadline, funding_amount
 ''')
         
         # Truncate HTML to avoid token limits
-        html_truncated = html_content[:8000]
+        html_truncated = html_content[:15000]
         
         prompt = prompt_template.format(url=url, html=html_truncated)
         
@@ -137,7 +227,42 @@ Return a JSON object with these exact keys: title, organization, abstract, deadl
             json_end = response_text.find('```', json_start)
             response_text = response_text[json_start:json_end].strip()
         
-        result = json.loads(response_text)
+        try:
+            result = json.loads(response_text)
+            
+            # Fix malformed JSON with escaped quotes in keys (e.g., "\"is_grant\"" instead of "is_grant")
+            # This can happen when GPT returns doubly-encoded JSON
+            if isinstance(result, dict):
+                fixed_result = {}
+                for key, value in result.items():
+                    # Remove quotes from key if present
+                    clean_key = key.strip('"\'')
+                    fixed_result[clean_key] = value
+                result = fixed_result
+            
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse JSON from GPT response: {e}")
+            logger.debug(f"Raw response: {response_text}")
+            raise ValueError(f"Invalid JSON from GPT: {str(e)}")
+        
+        # Handle non-grant pages (is_grant: false)
+        try:
+            is_grant = result.get('is_grant', True)
+        except (AttributeError, TypeError) as e:
+            logger.error(f"Error accessing 'is_grant' field in result: {e}. Result type: {type(result)}")
+            raise ValueError(f"Invalid result structure: {str(e)}")
+        
+        if not is_grant:
+            logger.info(f"Page is not a grant: {result.get('invalid_reason', 'No reason provided')}")
+            return {
+                'is_grant': False,
+                'invalid_reason': result.get('invalid_reason'),
+                'title': None,
+                'organization': None,
+                'abstract': None,
+                'deadline': None,
+                'funding_amount': None
+            }
         
         # Validate and normalize deadline format
         if result.get('deadline'):
@@ -165,7 +290,9 @@ Return a JSON object with these exact keys: title, organization, abstract, deadl
         own_driver = driver is None
         
         if own_driver:
-            driver = self._create_driver()
+            driver = self._create_driver(url)
+        
+        clicked_elements = 0
         
         try:
             logger.info(f"Extracting grant details from: {url}")
@@ -177,7 +304,11 @@ Return a JSON object with these exact keys: title, organization, abstract, deadl
             # Wait for page to load
             time.sleep(2)
             
-            # Get HTML content
+            # Click expandable elements (tabs, "show more", accordions, etc.)
+            # This reveals hidden content before extraction
+            clicked_elements = click_tabs_and_expandable_elements(driver)
+            
+            # Get HTML content after expansion
             html_content = driver.page_source
             
             load_time = time.time() - start_time
@@ -190,23 +321,65 @@ Return a JSON object with these exact keys: title, organization, abstract, deadl
             
             logger.info(f"Extraction successful for {url} (took {extraction_time:.2f}s)")
             
-            # Add metadata
-            result = {
-                'url': url,
-                'title': extracted_data.get('title'),
-                'organization': extracted_data.get('organization'),
-                'abstract': extracted_data.get('abstract'),
-                'deadline': extracted_data.get('deadline'),
-                'funding_amount': extracted_data.get('funding_amount'),
-                'extraction_date': datetime.now().isoformat(),
-                'extraction_success': True,
-                'error': None
-            }
+            # Check if page is actually a grant
+            if extracted_data.get('is_grant') is False:
+                result = {
+                    'url': url,
+                    'title': None,
+                    'organization': None,
+                    'abstract': None,
+                    'deadline': None,
+                    'funding_amount': None,
+                    'extraction_date': datetime.now().isoformat(),
+                    'extraction_success': False,
+                    'error': f"Not a grant page: {extracted_data.get('invalid_reason', 'Unknown')}",
+                    'is_grant': False
+                }
+            else:
+                # Add metadata for successful grant extraction
+                result = {
+                    'url': url,
+                    'title': extracted_data.get('title'),
+                    'organization': extracted_data.get('organization'),
+                    'abstract': extracted_data.get('abstract'),
+                    'deadline': extracted_data.get('deadline'),
+                    'funding_amount': extracted_data.get('funding_amount'),
+                    'extraction_date': datetime.now().isoformat(),
+                    'extraction_success': True,
+                    'error': None,
+                    'is_grant': True
+                }
+                
+                # Fallback: If GPT didn't extract deadline, try regex pattern matching
+                if result['deadline'] is None:
+                    fallback_deadline = extract_deadline_with_regex(html_content)
+                    if fallback_deadline:
+                        result['deadline'] = fallback_deadline
+                        logger.info(f"✓ Deadline recovered via regex fallback: {fallback_deadline}")
+            
+            # Update site profile with results
+            deadline_found = result.get('deadline') is not None
+            funding_found = result.get('funding_amount') is not None
+            self.site_profiles.update_site_profile(
+                url,
+                deadline_found=deadline_found,
+                funding_found=funding_found,
+                expandable_elements_clicked=clicked_elements
+            )
             
             return result
             
         except Exception as e:
             logger.error(f"Failed to extract from {url}: {type(e).__name__}: {e}")
+            
+            # Update profile even on failure
+            self.site_profiles.update_site_profile(
+                url,
+                deadline_found=False,
+                funding_found=False,
+                expandable_elements_clicked=clicked_elements,
+                notes=f"Extraction failed: {type(e).__name__}"
+            )
             
             return {
                 'url': url,

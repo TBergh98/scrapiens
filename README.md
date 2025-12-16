@@ -308,7 +308,6 @@ https://example.com/about
     {
       "url": "https://example.com/grant/2024/research-funding",
       "category": "single_grant",
-      "confidence": 0.95,
       "reason": "URL contains 'grant' and specific year, likely a single grant page",
       "keywords": ["ricerca"],
       "recipients": ["mario@email.it"]
@@ -318,8 +317,7 @@ https://example.com/about
     "total_links": 120,
     "single_grant": 45,
     "grant_list": 30,
-    "other": 45,
-    "avg_confidence": 0.87
+    "other": 45
   },
   "model": "gpt-4o-mini"
 }

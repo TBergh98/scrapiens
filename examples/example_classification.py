@@ -51,7 +51,6 @@ def main():
     for result in results:
         print(f"URL: {result['url']}")
         print(f"Category: {result['category']}")
-        print(f"Confidence: {result['confidence']:.2f}")
         print(f"Reason: {result['reason']}")
         print("-" * 80)
     

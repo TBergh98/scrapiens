@@ -83,44 +83,35 @@ def deduplicate_links(all_links: Dict[str, List[str]]) -> Dict[str, Any]:
 
 def deduplicate_links_with_keywords(sites_with_keywords: Dict[str, Dict[str, List[str]]]) -> Dict[str, Any]:
     """
-    Deduplicate links across all sites, preserving keywords union for each link.
+    Deduplicate links across all sites and output simple list without keywords.
     
     Args:
         sites_with_keywords: Dictionary mapping site names to {url: [keywords]} dictionaries
         
     Returns:
         Dictionary with:
-        - links_with_keywords: Dictionary mapping each URL to its accumulated keywords
+        - links: List of unique URLs (sorted)
         - stats: Statistics about deduplication
-        - sites: Original site-to-links mapping
     """
-    logger.info("Deduplicating links with keywords...")
+    logger.info("Deduplicating links...")
     
     # Count total links before deduplication
     total_links = sum(len(links) for links in sites_with_keywords.values())
     
-    # Deduplicate: accumulate keywords for each unique link
-    links_with_keywords = {}
+    # Deduplicate: collect unique links only (no keywords)
+    unique_links_set = set()
     
     for site_name, site_links in sites_with_keywords.items():
-        for url, keywords in site_links.items():
-            if url not in links_with_keywords:
-                links_with_keywords[url] = []
-            
-            # Add keywords from this site to the set for this URL (if any)
-            for kw in keywords:
-                if kw not in links_with_keywords[url]:
-                    links_with_keywords[url].append(kw)
-            
-            links_with_keywords[url] = sorted(links_with_keywords[url])
+        for url in site_links.keys():
+            unique_links_set.add(url)
     
     # Calculate statistics
-    duplicates_removed = total_links - len(links_with_keywords)
+    duplicates_removed = total_links - len(unique_links_set)
     
     stats = {
         'total_sites': len(sites_with_keywords),
         'total_links_before': total_links,
-        'unique_links': len(links_with_keywords),
+        'unique_links': len(unique_links_set),
         'duplicates_removed': duplicates_removed,
         'deduplication_rate': round(duplicates_removed / total_links * 100, 2) if total_links > 0 else 0
     }
@@ -129,9 +120,8 @@ def deduplicate_links_with_keywords(sites_with_keywords: Dict[str, Dict[str, Lis
     logger.info(f"Removed {stats['duplicates_removed']} duplicates ({stats['deduplication_rate']}%)")
     
     return {
-        'links_with_keywords': links_with_keywords,
-        'stats': stats,
-        'sites': sites_with_keywords
+        'links': sorted(list(unique_links_set)),
+        'stats': stats
     }
 
 
@@ -159,15 +149,14 @@ def deduplicate_from_directory(
     if not sites_with_keywords:
         logger.warning("No links loaded from directory")
         return {
-            'links_with_keywords': {},
+            'links': [],
             'stats': {
                 'total_sites': 0,
                 'total_links_before': 0,
                 'unique_links': 0,
                 'duplicates_removed': 0,
                 'deduplication_rate': 0
-            },
-            'sites': {}
+            }
         }
     
     # Deduplicate

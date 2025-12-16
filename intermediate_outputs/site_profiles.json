@@ -1,0 +1,122 @@
+{
+  "www.asab.org": {
+    "domain": "www.asab.org",
+    "observations": 2,
+    "deadline_extraction_success_rate": 0.0,
+    "has_js_loaded_deadline": false,
+    "has_js_loaded_funding": false,
+    "has_expandable_content": false,
+    "recommended_timeout": 8,
+    "recommended_clicks": 10,
+    "last_updated": "2025-12-16T11:05:57.924214",
+    "notes": "Extraction failed: TimeoutException"
+  },
+  "www.animalwelfarefoundation.org.uk": {
+    "domain": "www.animalwelfarefoundation.org.uk",
+    "observations": 3,
+    "deadline_extraction_success_rate": 0.0,
+    "has_js_loaded_deadline": false,
+    "has_js_loaded_funding": false,
+    "has_expandable_content": true,
+    "recommended_timeout": 8,
+    "recommended_clicks": 6,
+    "last_updated": "2025-12-16T11:07:03.639424",
+    "notes": "Extraction failed: KeyError"
+  },
+  "cervitalia.info": {
+    "domain": "cervitalia.info",
+    "observations": 7,
+    "deadline_extraction_success_rate": 0.0,
+    "has_js_loaded_deadline": true,
+    "has_js_loaded_funding": true,
+    "has_expandable_content": true,
+    "recommended_timeout": 15,
+    "recommended_clicks": 12,
+    "last_updated": "2025-12-16T11:07:36.786550",
+    "notes": "Extraction failed: KeyError"
+  },
+  "ec.europa.eu": {
+    "domain": "ec.europa.eu",
+    "observations": 243,
+    "deadline_extraction_success_rate": 0.0,
+    "has_js_loaded_deadline": false,
+    "has_js_loaded_funding": false,
+    "has_expandable_content": true,
+    "recommended_timeout": 8,
+    "recommended_clicks": 6,
+    "last_updated": "2025-12-16T11:49:04.588119",
+    "notes": "Extraction failed: KeyError"
+  },
+  "twitter.com": {
+    "domain": "twitter.com",
+    "observations": 8,
+    "deadline_extraction_success_rate": 0.0,
+    "has_js_loaded_deadline": false,
+    "has_js_loaded_funding": false,
+    "has_expandable_content": false,
+    "recommended_timeout": 8,
+    "recommended_clicks": 10,
+    "last_updated": "2025-12-16T11:23:17.695856",
+    "notes": "Extraction failed: TimeoutException"
+  },
+  "www.linkedin.com": {
+    "domain": "www.linkedin.com",
+    "observations": 4,
+    "deadline_extraction_success_rate": 0.0,
+    "has_js_loaded_deadline": false,
+    "has_js_loaded_funding": false,
+    "has_expandable_content": false,
+    "recommended_timeout": 8,
+    "recommended_clicks": 10,
+    "last_updated": "2025-12-16T11:11:43.139156",
+    "notes": "Extraction failed: KeyError"
+  },
+  "www.facebook.com": {
+    "domain": "www.facebook.com",
+    "observations": 3,
+    "deadline_extraction_success_rate": 0.0,
+    "has_js_loaded_deadline": false,
+    "has_js_loaded_funding": false,
+    "has_expandable_content": false,
+    "recommended_timeout": 8,
+    "recommended_clicks": 10,
+    "last_updated": "2025-12-16T11:22:11.439932",
+    "notes": "Extraction failed: KeyError"
+  },
+  "t.me": {
+    "domain": "t.me",
+    "observations": 7,
+    "deadline_extraction_success_rate": 0.0,
+    "has_js_loaded_deadline": false,
+    "has_js_loaded_funding": false,
+    "has_expandable_content": false,
+    "recommended_timeout": 8,
+    "recommended_clicks": 10,
+    "last_updated": "2025-12-16T11:48:55.638358",
+    "notes": "Extraction failed: KeyError"
+  },
+  "europa.eu": {
+    "domain": "europa.eu",
+    "observations": 1,
+    "deadline_extraction_success_rate": 0.0,
+    "has_js_loaded_deadline": false,
+    "has_js_loaded_funding": false,
+    "has_expandable_content": false,
+    "recommended_timeout": 8,
+    "recommended_clicks": 10,
+    "last_updated": "2025-12-16T11:19:17.732632",
+    "notes": "Extraction failed: KeyError"
+  },
+  "webgate.ec.europa.eu": {
+    "domain": "webgate.ec.europa.eu",
+    "observations": 1,
+    "deadline_extraction_success_rate": 0.0,
+    "has_js_loaded_deadline": true,
+    "has_js_loaded_funding": true,
+    "has_expandable_content": true,
+    "recommended_timeout": 10,
+    "recommended_clicks": 12,
+    "last_updated": "2025-12-16T11:19:23.191647",
+    "notes": "Extraction failed: KeyError"
+  }
+}

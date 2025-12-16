@@ -7,9 +7,9 @@ paths:
   # Input directory for YAML configuration files
   input_dir: "input"
   # Output directory for extracted links
-  output_dir: "all_links"
+  output_dir: "intermediate_outputs/all_links"
   # Unified links file (after deduplication)
-  unified_links_file: "link_unificati.json"
+  unified_links_file: "intermediate_outputs/link_unificati.json"
 
 # Input Files Configuration (YAML format)
 input_files:
@@ -51,6 +51,8 @@ scraping:
   extended_wait: 1
   # Time between scroll iterations (seconds)
   scroll_delay: 0.2
+  # Maximum number of expandable elements to click (tabs, "show more", etc.)
+  max_expandable_clicks: 30
 
 # Cookie Banner Configuration
 cookies:
@@ -120,7 +122,6 @@ openai:
     Return your response as a JSON array where each object has:
     - "url": the original URL
     - "category": one of "single_grant", "grant_list", or "other"
-    - "confidence": a number between 0 and 1 indicating your confidence
     - "reason": a brief explanation of why you classified it this way
     
     URLs to classify:
@@ -129,7 +130,7 @@ openai:
 # Grant Details Extraction Configuration
 extractor:
   # Model to use for grant details extraction
-  model: "gpt-4o"
+  model: "gpt-4o-mini"
   # Selenium page load timeout (seconds)
   timeout: 10
   # Number of parallel workers for extraction
@@ -138,27 +139,67 @@ extractor:
   max_retries: 3
   # Extraction prompt template
   extraction_prompt: |
-    Analyze the following HTML content from a research grant/call page and extract the following information:
+    Validate if this page contains research grant/call information, then extract structured data.
     
-    1. **title**: The title of the grant/call (string)
-    2. **organization**: The organization offering the grant (string)
-    3. **abstract**: A brief summary or description of the grant (string, max 500 characters)
-    4. **deadline**: The application deadline (CRITICAL: ONLY if EXPLICITLY stated in the text. Return null if not found or ambiguous. Format as YYYY-MM-DD. DO NOT invent or guess dates.)
-    5. **funding_amount**: The funding amount available (string, e.g., "€500,000" or "up to $1M")
+    ## Output Schema
     
-    IMPORTANT RULES:
-    - Return ONLY factual information that is explicitly present in the HTML
-    - For deadline: If you see text like "scadenza: 31/12/2024" or "deadline: December 31, 2024", extract it. If dates are vague like "coming soon" or "TBD", return null
-    - For funding_amount: Look for keywords like "importo", "finanziamento", "budget", "funding", "amount"
-    - If any field cannot be found, return null (not empty string)
-    - Return valid JSON only
+    If NOT a grant page (contact, FAQ, navigation, error, etc.):
+    ```json
+    {"is_grant": false, "invalid_reason": "brief 1-2 sentence description"}
+    ```
+    
+    If IS a grant page (has title, organization, description, requirements/dates/budget):
+    ```json
+    {
+      "is_grant": true,
+      "title": "string",
+      "organization": "string", 
+      "abstract": "string",
+      "keywords": "string or null",
+      "opening_date": "YYYY-MM-DD or null",
+      "deadline": "YYYY-MM-DD or null",
+      "funding_amount": "string or null"
+    }
+    ```
+    
+    ## Field Extraction Rules
+    
+    **title**: Grant/call title from HTML
+    
+    **organization**: Organization offering the grant
+    
+    **abstract**: Description/summary with length-adaptive handling:
+    - ≤500 chars: Copy EXACTLY as appears in HTML (preserve all original wording)
+    - >500 chars: Intelligent summary (400-500 chars) removing redundancy while preserving domain-specific keywords and key concepts
+    - Purpose: Used for keyword matching - maintain technical terms
+    
+    **keywords**: Extract ONLY from explicit keyword/tag sections ("keywords", "key terms", "tags", "subject areas", "topics"). Format as comma/semicolon-separated string. Return null if no dedicated keyword section exists.
+    
+    **Date Fields** (opening_date & deadline):
+    - Extract ONLY if EXPLICITLY stated with clear date indicators
+    - Format: YYYY-MM-DD
+    - Return null if vague ("coming soon", "TBD") or ambiguous
+    - Never invent or guess dates
+    
+    Date keyword indicators:
+    | Field | English | Italian | Other |
+    |-------|---------|---------|-------|
+    | opening_date | "opening", "opens", "from", "starts" | "apertura", "a partire da" | - |
+    | deadline | "deadline", "closes on", "closed on", "expired on" | "scadenza", "chiude il", "chiuso il", "scaduto il", "termine", "data limite" | - |
+    
+    **funding_amount**: Extract funding/budget information (e.g., "€500,000", "up to $1M"). Look for: "importo", "finanziamento", "budget", "funding", "amount". Return null if not found.
+    
+    ## Critical Rules
+    - Return ONLY factual information explicitly present in HTML
+    - Use null (not empty string) for missing fields
+    - Return valid JSON only - no explanations outside JSON
+    
+    ---
     
     URL: {url}
     
-    HTML Content (truncated to first 8000 chars):
+    HTML Content (truncated to first 15000 chars):
     {html}
-    
-    Return a JSON object with these exact keys: title, organization, abstract, deadline, funding_amount
 
 # Cache Configuration
 cache:
