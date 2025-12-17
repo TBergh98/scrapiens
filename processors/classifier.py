@@ -84,12 +84,15 @@ class LinkClassifier:
         ]
         
         other_patterns = [
-            r'\b(about|chi\s+siamo|contatti?|contact|news|blog|faq|help|support|privacy|terms|policy)\b',
+            r'\b(about|chi\s+siamo|contatti?|contact|news|blog|faq|frequently\s+asked\s+questions?|help|support|privacy|terms|policy|allegat[oi]|attachments?|annexe?s?|appendi(x|ces)|vincitor[ei]|winners?|servizi[oi]?|services?)\b',
             r'/about(/|$|[?#])',
             r'/contact(/|$|[?#])',
             r'/news(/|$|[?#])',
             r'/blog(/|$|[?#])',
             r'/help(/|$|[?#])',
+            r'/allegat[oi](/|$|[?#])',
+            r'/(attachment|annex|appendix)(/|$|[?#])',
+            r'\.pdf($|[?#])',
             r'linkedin',
         ]
         

@@ -82,9 +82,15 @@ def load_sites_from_yaml(yaml_path: Path) -> List[Dict[str, Any]]:
             if pagination_param is not None and not isinstance(pagination_param, str):
                 raise ValueError(f"Site '{site_config['name']}': 'pagination_param' must be string or null, got {type(pagination_param)}")
             
+            # RSS feed URL (optional)
+            rss_url = site_config.get('rss_url', None)
+            if rss_url is not None and not isinstance(rss_url, str):
+                raise ValueError(f"Site '{site_config['name']}': 'rss_url' must be string or null")
+            
             site = {
                 'name': str(site_config['name']).strip(),
                 'url': str(site_config['url']).strip(),
+                'rss_url': rss_url.strip() if rss_url else None,
                 'js': js,
                 'next_selector': next_selector,
                 'max_pages': max_pages,
@@ -126,7 +132,7 @@ def validate_sites_yaml(sites: List[Dict[str, Any]]) -> bool:
         if not isinstance(site, dict):
             raise ValueError(f"Site at index {idx} is not a dictionary")
         
-        required = ['name', 'url', 'js', 'next_selector', 'max_pages', 'pagination_param']
+        required = ['name', 'url', 'rss_url', 'js', 'next_selector', 'max_pages', 'pagination_param']
         if not all(key in site for key in required):
             raise ValueError(f"Site at index {idx} missing required keys: {required}")
         

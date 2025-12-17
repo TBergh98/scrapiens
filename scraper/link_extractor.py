@@ -15,6 +15,7 @@ from config.settings import get_config
 from scraper.selenium_utils import accept_cookies, scroll_page_for_lazy_content, wait_for_page_ready
 from scraper.pagination import handle_pagination
 from scraper.http_extractor import extract_links_from_http
+from scraper.rss_extractor import RssExtractor
 
 logger = get_logger(__name__)
 
@@ -84,13 +85,16 @@ def scrape_site(driver: webdriver.Chrome, site_config: Dict) -> Set[str]:
     """
     Scrape all links from a single website.
     
-    Uses HTTP requests for non-JS sites (100x faster), Selenium for JS sites.
+    ROUTING LOGIC:
+    - If site has rss_url configured: Use RSS extraction (fast, no Selenium)
+    - Otherwise: Use existing Selenium/HTTP logic
 
     Args:
         driver: Selenium WebDriver instance
         site_config: Site configuration dictionary with keys:
             - name: Site name
             - url: Starting URL
+            - rss_url: RSS feed URL (optional)
             - js: Whether JavaScript rendering is needed
             - next_selector: CSS selector for pagination (None if no pagination)
             - max_pages: Maximum pages to scrape
@@ -103,6 +107,18 @@ def scrape_site(driver: webdriver.Chrome, site_config: Dict) -> Set[str]:
     
     name = site_config['name']
     url = site_config['url']
+    rss_url = site_config.get('rss_url')  # NEW: Check for RSS
+    
+    # NEW: RSS Path (No Selenium/HTTP needed)
+    if rss_url:
+        logger.info(f"🔔 Site '{name}' has RSS configured - using RSS extraction")
+        try:
+            return RssExtractor.scrape_site_rss(site_config)
+        except Exception as e:
+            logger.error(f"RSS extraction failed for '{name}', falling back to standard scraping: {e}")
+            # Fall through to standard scraping if RSS fails
+    
+    # EXISTING: Standard Selenium/HTTP Path (unchanged)
     js = site_config.get('js', None)  # None = auto-detect
     next_selector = site_config.get('next_selector')
     max_pages = site_config.get('max_pages', 1)

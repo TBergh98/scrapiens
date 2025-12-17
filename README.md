@@ -5,125 +5,177 @@ A modular web scraping and AI-powered link classification system for extracting 
 > **Status**: In active development and testing  
 > **Team**: Internal use (TBergh98 + collaborator)
 
-## Technical Overview
+## Overview
 
-**Web Scraping Engine**
-- Selenium-based with headless Chrome
-- Automatic cookie banner handling (multiple detection strategies)
-- Pagination support for multi-page sites
-- JavaScript rendering for dynamic content
-- Overlay and popup handling
+**Scrapiens** streamlines the research grant discovery process:
 
-**Link Processing Pipeline**
-- Deduplication across multiple sources
-- OpenAI-powered classification (single_grant, grant_list, other)
-- Batch processing for API efficiency
-- JSON-based data interchange
+1. **Scrape** multiple grant websites (RSS feeds or HTML)
+2. **Deduplicate** links across sources while preserving keywords
+3. **Classify** links by category (single grant, grant list, other) and route to recipients
+4. **Export** results as structured JSON
 
-**Architecture**
-- Modular component design
-- YAML + environment variable configuration
+### Technical Stack
+
+**Web Scraping:**
+- ⚡ **RSS Feed Support** - Fast extraction from RSS/Atom feeds (30-50x faster than HTML)
+- 🌐 **Selenium** - Headless Chrome for dynamic JavaScript content
+- 📝 **HTTP** - Direct HTTP scraping for static sites (100x faster than Selenium)
+- 🔍 **Link Processing** - Cookie banner handling, overlay detection, pagination support
+
+**Data Pipeline:**
+- 🗑️ **Deduplication** - Remove duplicate links across multiple sources
+- 🤖 **AI Classification** - OpenAI-powered categorization (single_grant, grant_list, other)
+- 📊 **Batch Processing** - Efficient API usage and data interchange
+
+**Architecture:**
+- Modular component design with clear separation of concerns
+- YAML-based configuration + environment variables
 - Comprehensive logging system
-- CLI and programmatic interfaces
+- Both CLI and programmatic Python interfaces
+
+## Quick Start
+
+### 1. Setup
+
+```bash
+# Create virtual environment
+py -m venv .venv
+.venv\Scripts\activate  # Windows
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Setup environment
+copy .env.example .env
+# Edit .env and add your OpenAI API key
+```
+
+### 2. Configure
+
+Edit `config/config.yaml`:
+```yaml
+paths:
+  base_dir: "C:/your/working/directory"  # Required
+  input_dir: "input"
+  output_dir: "all_links"
+```
+
+Edit `input/sites.yaml` - add sites to scrape:
+```yaml
+sites:
+  - name: example_site
+    url: https://example.com/grants
+    rss_url: https://example.com/feed.xml  # Optional: RSS for speed
+    js: false
+    next_selector: null
+    max_pages: 1
+    pagination_param: null
+```
+
+Edit `input/keywords.yaml` - add recipients and their keywords:
+```yaml
+keywords:
+  mario@email.it:
+    - ricerca
+  anna@email.it:
+    - bandi
+```
+
+### 3. Run Pipeline
+
+```bash
+# Scrape all configured sites
+python main.py scrape
+
+# Deduplicate extracted links
+python main.py deduplicate
+
+# Classify links with AI (adds recipients)
+python main.py classify
+
+# Or run everything at once
+python main.py pipeline
+```
+
+### 4. Check Results
+
+Output files:
+- `all_links/` - JSON per site with URLs and keywords
+- `link_unificati.json` - Deduplicated links across all sites
+- `link_unificati_classified.json` - Final classified links with recipients
+
+See [docs/QUICKSTART.md](docs/QUICKSTART.md) for more details.
 
 ## Project Structure
 
 ```
 scrapiens/
-├── config/                 # Configuration module
-│   ├── __init__.py
-│   ├── settings.py        # Configuration loader
-│   └── config.yaml        # Main configuration file
-├── scraper/               # Web scraping modules
-│   ├── __init__.py
-│   ├── sites_reader.py    # YAML sites input
-│   ├── keywords_reader.py # YAML keywords/email input
-│   ├── selenium_utils.py  # Cookie handling, overlays
-│   ├── link_extractor.py  # Core scraping logic
-│   └── pagination.py      # Pagination handling
-├── processors/            # Data processing modules
-│   ├── __init__.py
-│   ├── deduplicator.py    # Link deduplication
-│   └── classifier.py      # OpenAI classification
-├── utils/                 # Utility modules
-│   ├── __init__.py
-│   ├── file_utils.py      # File I/O operations
-│   └── logger.py          # Logging setup
-├── tests/                 # Test suite
-│   ├── __init__.py
-│   ├── conftest.py
-│   ├── test_config.py
-│   ├── test_excel_reader.py  # YAML loader tests
-│   └── test_deduplicator.py
-├── examples/              # Example scripts
-│   ├── README.md
-│   ├── example_single_site.py
-│   ├── example_batch_scraping.py
-│   ├── example_classification.py
-│   └── example_full_pipeline.py
-├── main.py               # CLI entry point
-├── requirements.txt      # Python dependencies
-├── config.yaml          # Configuration file
-├── .env.example         # Environment variables template
-├── .gitignore
-└── README.md            # This file
+├── config/                     # Configuration module
+│   ├── settings.py             # Config loader
+│   └── config.yaml             # Main configuration
+├── scraper/                    # Web scraping modules
+│   ├── rss_extractor.py        # RSS/Atom extraction
+│   ├── http_extractor.py       # HTTP extraction
+│   ├── selenium_utils.py       # Browser automation
+│   ├── link_extractor.py       # Core scraping logic
+│   └── pagination.py           # Pagination handling
+├── processors/                 # Data processing
+│   ├── deduplicator.py         # Remove duplicates
+│   ├── classifier.py           # AI classification
+│   └── site_profiles.py        # Site analysis
+├── utils/                      # Utilities
+│   ├── file_utils.py           # File I/O
+│   ├── logger.py               # Logging
+│   └── cache.py                # Caching
+├── tests/                      # Test suite
+├── examples/                   # Example scripts
+├── docs/                       # Documentation
+├── input/                      # Configuration YAML files
+├── intermediate_outputs/       # Scraped links cache
+├── output/                     # Final results
+├── main.py                     # CLI entry point
+└── requirements.txt            # Dependencies
 ```
 
-## Installation
+## Installation & Setup
 
 ### Prerequisites
 
-- Python 3.7 or higher
-- Chrome browser
-- ChromeDriver (automatically managed by Selenium)
+- Python 3.7+
+- Chrome browser (for Selenium fallback)
+- OpenAI API key (for classification)
 
-### Setup
+### 1. Clone & Install
 
-1. **Clone the repository:**
-   ```bash
-   git clone https://github.com/TBergh98/scrapiens.git
-   cd scrapiens
-   ```
+```bash
+git clone https://github.com/TBergh98/scrapiens.git
+cd scrapiens
 
-2. **Create and activate virtual environment:**
-   ```bash
-   # Windows
-   py -m venv .venv
-   .venv\Scripts\activate
-   ```
+py -m venv .venv
+.venv\Scripts\activate
 
-3. **Install dependencies:**
-   ```bash
-   pip install -r requirements.txt
-   ```
+pip install -r requirements.txt
+```
 
-4. **Configure environment variables:**
-   Create `.env` file with your OpenAI API key:
-   ```bash
-   OPENAI_API_KEY=sk-your-key-here
-   ```
+### 2. Environment Setup
 
-5. **Configure application:**
-  Edit `config/config.yaml`:
-  - Set `paths.base_dir` to your working directory
-  - Ensure `paths.input_dir` points to the folder with `sites.yaml` and `keywords.yaml`
-  - Optionally adjust output paths
+Create `.env` file:
+```bash
+OPENAI_API_KEY=sk-your-key-here
+# Optional
+BASE_DIR=/custom/base/directory
+```
 
-## Configuration
+### 3. Application Configuration
 
-### Main Configuration File (`config/config.yaml`)
+Edit `config/config.yaml`:
 
 ```yaml
 paths:
-  base_dir: "/your/base/dir"
-  input_dir: "input"
-  output_dir: "all_links"
+  base_dir: "/your/base/dir"           # Where is the project?
+  input_dir: "input"                   # Where are sites.yaml and keywords.yaml?
+  output_dir: "all_links"              # Where to save scraped links?
   unified_links_file: "link_unificati.json"
-
-input_files:
-  sites_file: "sites.yaml"
-  keywords_file: "keywords.yaml"
-```
 
 selenium:
   headless: true
@@ -133,219 +185,329 @@ selenium:
 openai:
   model: "gpt-4o-mini"
   timeout: 300
+
+logging:
+  level: "INFO"
+```
+
+## CLI Commands
+
+### Full Pipeline
+
+```bash
+python main.py pipeline
+```
+
+Runs scrape → deduplicate → classify in sequence.
+
+### Individual Steps
+
+**Scrape:**
+```bash
+python main.py scrape
+python main.py scrape -o custom_output/  # Custom output dir
+```
+
+**Deduplicate:**
+```bash
+python main.py deduplicate
+python main.py deduplicate -i links_dir/ -o dedup.json
+```
+
+**Classify:**
+```bash
+python main.py classify
+python main.py classify -m gpt-4o  # Different model
+python main.py classify -i links.json -o classified.json
+```
+
+### CLI Help
+
+```bash
+python main.py --help
+python main.py scrape --help
+python main.py classify --help
+```
+
+## Programmatic Usage
+
+```python
+from pathlib import Path
+from config import get_config
+from scraper import load_sites_from_yaml, scrape_sites
+from processors import deduplicate_from_directory, LinkClassifier
+
+# Load configuration
+config = get_config()
+input_dir = config.get_full_path('paths.input_dir')
+
+# Load sites and keywords
+sites = load_sites_from_yaml(input_dir / 'sites.yaml')
+keywords = load_keywords_from_yaml(input_dir / 'keywords.yaml')
+
+# Scrape
+scrape_dir = config.get_full_path('paths.output_dir')
+scrape_results = scrape_sites(sites, output_dir=scrape_dir)
+
+# Deduplicate
+dedup_file = config.get_full_path('paths.unified_links_file')
+dedup_results = deduplicate_from_directory(scrape_dir, dedup_file)
+
+# Classify
+classifier = LinkClassifier()
+classifier.classify_from_file(
+    input_file=dedup_file,
+    output_file=dedup_file.parent / 'classified.json',
+    keywords_dict=keywords
+)
+```
+
+See [examples/](examples/) directory for more detailed usage patterns.
+
+## Input Formats
+
+### Sites Configuration (`input/sites.yaml`)
+
+```yaml
+sites:
+  # Example with RSS (fast, recommended when available)
+  - name: example_rss
+    url: https://www.example.com/grants
+    rss_url: https://www.example.com/feed.xml
+    js: false
+    next_selector: null
+    max_pages: 1
+    pagination_param: null
+  
+  # Example with JavaScript rendering
+  - name: complex_site
+    url: https://example.com/grants
+    rss_url: null
+    js: true
+    next_selector: "button.next"
+    max_pages: 5
+    pagination_param: "page"
+  
+  # Example with standard HTTP
+  - name: static_site
+    url: https://example.org/grants
+    rss_url: null
+    js: false
+    next_selector: null
+    max_pages: 1
+    pagination_param: null
+```
+
+**Field Descriptions:**
+- `name` - Unique site identifier
+- `url` - Base URL of the site
+- `rss_url` - RSS feed URL (or null for HTML scraping)
+- `js` - Render JavaScript? (true for dynamic content)
+- `next_selector` - CSS selector for pagination button
+- `max_pages` - Maximum pages to scrape
+- `pagination_param` - URL parameter for pagination
+
+### Keywords Configuration (`input/keywords.yaml`)
+
+```yaml
+keywords:
+  mario@example.it:
+    - ricerca
+    - innovazione
+  anna@example.it:
+    - bandi
+    - finanziamenti
+```
+
+Maps email addresses to keywords they're interested in. Classification will assign recipients based on keyword matches.
+
+## Output Formats
+
+### Per-Site Links
+
+File: `all_links/{site_name}_links.json`
+
+```json
+{
+  "https://example.com/grant/2024": ["ricerca", "innovazione"],
+  "https://example.com/call/2025": ["ricerca"]
+}
+```
+
+### Deduplicated Links
+
+File: `link_unificati.json`
+
+```json
+{
+  "links_with_keywords": {
+    "https://example.com/grant/2024": ["ricerca", "innovazione"],
+    "https://example.org/call/2025": ["ricerca"]
+  },
+  "stats": {
+    "total_sites": 50,
+    "total_links_before": 5000,
+    "unique_links": 3500,
+    "duplicates_removed": 1500,
+    "deduplication_rate": 30.0
+  },
+  "sites": {
+    "site1": {"url1": ["keyword1"]},
+    "site2": {"url2": ["keyword2"]}
+  }
+}
+```
+
+### Classified Links
+
+File: `link_unificati_classified.json`
+
+```json
+{
+  "classifications": [
+    {
+      "url": "https://example.com/grant/2024",
+      "category": "single_grant",
+      "reason": "URL contains 'grant' with specific year, likely a single grant page",
+      "keywords": ["ricerca"],
+      "recipients": ["mario@example.it"]
+    }
+  ],
+  "stats": {
+    "total_links": 3500,
+    "single_grant": 1200,
+    "grant_list": 800,
+    "other": 1500
+  },
+  "model": "gpt-4o-mini"
+}
+```
+
+## RSS Feed Integration 🆕
+
+Scrapiens supports RSS/Atom feed extraction for **30-50x faster scraping**.
+
+### Quick Setup
+
+Simply add `rss_url` to your site configuration:
+
+```yaml
+sites:
+  - name: my_site
+    url: https://example.com
+    rss_url: https://example.com/feed.xml
+    # ... other fields
+```
+
+### Benefits
+
+- ⚡ **30-50x faster** - No browser overhead
+- 🔋 **90% less resource** - No Selenium needed
+- ✅ **More reliable** - Standardized XML format
+
+### Finding RSS Feeds
+
+Common locations:
+- `/feed.xml`, `/rss.xml`, `/atom.xml`
+- `/feed/`, `/blog/feed/`
+- Site footer for RSS icon
+
+Check site HTML for: `<link rel="alternate" type="application/rss+xml">`
+
+### Documentation
+
+See [docs/RSS_INTEGRATION.md](docs/RSS_INTEGRATION.md) for:
+- Complete configuration guide
+- Usage examples
+- API reference
+- Troubleshooting
+- Performance comparison
+
+## Testing
+
+```bash
+# Run all tests
+pytest
+
+# Run specific test
+pytest tests/test_deduplicator.py
+
+# Verbose output
+pytest -v
+
+# Coverage report
+pytest --cov=. --cov-report=html
+```
+
+## Examples
+
+Check [examples/](examples/) directory:
+
+- `example_single_site.py` - Scrape one site
+- `example_batch_scraping.py` - Scrape multiple sites
+- `example_rss_scraping.py` - Use RSS extraction
+- `example_classification.py` - Classify links
+- `example_full_pipeline.py` - Complete workflow
+
+Run an example:
+
+```bash
+python examples/example_single_site.py
+```
+
+## Configuration Reference
+
+### `config/config.yaml`
+
+```yaml
+paths:
+  base_dir: "."
+  input_dir: "input"
+  output_dir: "all_links"
+  unified_links_file: "link_unificati.json"
+
+input_files:
+  sites_file: "sites.yaml"
+  keywords_file: "keywords.yaml"
+
+selenium:
+  headless: true
+  implicit_wait: 15
+  page_load_timeout: 30
+
+openai:
+  model: "gpt-4o-mini"
+  timeout: 300
+
+logging:
+  level: "INFO"
 ```
 
 ### Environment Variables (`.env`)
 
 ```bash
 # Required for classification
-OPENAI_API_KEY=your_openai_api_key_here
+OPENAI_API_KEY=sk-...
 
 # Optional: Override base directory
-BASE_DIR=/your/base/dir
+BASE_DIR=/custom/directory
 ```
 
-## Usage
+## Troubleshooting
 
-### Command Line Interface
-
-The project includes a comprehensive CLI for running the full pipeline or individual steps.
-
-#### Full Pipeline
-
-Run the complete scraping → deduplication → classification pipeline:
-
-```bash
-python main.py pipeline
-```
-
-#### Individual Commands
-
-**1. Scrape websites (from YAML):**
-```bash
-python main.py scrape
-
-# Specify custom output directory
-python main.py scrape -o custom_output/
-```
-
-**2. Deduplicate links (JSON with keywords):**
-```bash
-python main.py deduplicate
-
-# Specify custom input/output
-python main.py deduplicate -i input_dir/ -o deduplicated.json
-```
-
-**3. Classify links (adds recipients per keyword):**
-```bash
-python main.py classify
-
-# Specify custom input/output and model
-python main.py classify -i links.json -o classified.json -m gpt-4o-mini
-```
-
-#### CLI Options
-
-```bash
-# See all available commands
-python main.py --help
-
-# See options for specific command
-python main.py scrape --help
-python main.py deduplicate --help
-python main.py classify --help
-python main.py pipeline --help
-```
-
-### Programmatic Usage
-
-You can also use Scrapiens as a library in your Python code:
-
-```python
-from pathlib import Path
-from config import get_config
-from scraper import load_sites_from_yaml, load_keywords_from_yaml, scrape_sites
-from processors import deduplicate_from_directory, LinkClassifier
-
-config = get_config()
-input_dir = config.get_full_path('paths.input_dir')
-sites = load_sites_from_yaml(input_dir / config.get('input_files.sites_file'))
-keywords = load_keywords_from_yaml(input_dir / config.get('input_files.keywords_file'))
-
-# Scrape
-scrape_dir = config.get_full_path('paths.output_dir')
-scrape_results = scrape_sites(sites, output_dir=scrape_dir, save_individual=True)
-
-# Deduplicate (preserves keywords)
-dedup_file = config.get_full_path('paths.unified_links_file')
-dedup_results = deduplicate_from_directory(scrape_dir, dedup_file)
-
-# Classify (adds recipients)
-classifier = LinkClassifier()
-classifier.classify_from_file(
-  input_file=dedup_file,
-  output_file=dedup_file.parent / 'classified.json',
-  keywords_dict=keywords
-)
-```
-
-See the `examples/` directory for more detailed usage examples.
-
-## YAML Input Format
-
-### `input/sites.yaml`
-
-```yaml
-sites:
-  - name: esempio_universita
-    url: https://www.universita-esempio.it/bandi
-    js: false
-    next_selector: null
-    max_pages: 1
-    keywords: [ricerca, bandi]
-```
-
-### `input/keywords.yaml`
-
-```yaml
-keywords:
-  mario@email.it:
-    - ricerca
-  anna@email.it:
-    - bandi
-```
-
-## Output Formats
-
-### Scraped Links (`.txt` files)
-
-One file per site with one URL per line:
-
-```
-https://example.com/grant/2024/research-funding
-https://example.com/grant/2023/innovation-award
-https://example.com/about
-```
-
-### Scraped Links (`*_links.json` per site)
-
-```json
-{
-  "https://example.com/grant/2024/research-funding": ["ricerca"],
-  "https://example.com/grant/2023/innovation-award": ["innovazione"],
-  "https://example.com/about": ["ricerca"]
-}
-```
-
-### Deduplicated Links (`link_unificati.json`)
-
-```json
-{
-  "links_with_keywords": {
-    "https://example.com/grant/2024/research-funding": ["ricerca"],
-    "https://example.org/call/doctoral-fellowship": ["innovazione", "ricerca"]
-  },
-  "stats": {
-    "total_sites": 3,
-    "total_links_before": 150,
-    "unique_links": 120,
-    "duplicates_removed": 30,
-    "deduplication_rate": 20.0
-  },
-  "sites": {
-    "example_com": {"url1": ["ricerca"]},
-    "example_org": {"url2": ["innovazione"]}
-  }
-}
-```
-
-### Classified Links (`link_unificati_classified.json`)
-
-```json
-{
-  "classifications": [
-    {
-      "url": "https://example.com/grant/2024/research-funding",
-      "category": "single_grant",
-      "reason": "URL contains 'grant' and specific year, likely a single grant page",
-      "keywords": ["ricerca"],
-      "recipients": ["mario@email.it"]
-    }
-  ],
-  "stats": {
-    "total_links": 120,
-    "single_grant": 45,
-    "grant_list": 30,
-    "other": 45
-  },
-  "model": "gpt-4o-mini"
-}
-```
-
-## Testing
-
-Run the test suite using pytest:
-
-```bash
-# Run all tests
-pytest
-
-# Run with verbose output
-pytest -v
-
-# Run specific test file
-pytest tests/test_deduplicator.py
-
-# Run with coverage report
-pytest --cov=. --cov-report=html
-```
+| Problem | Solution |
+|---------|----------|
+| "OPENAI_API_KEY not found" | Add key to `.env` file |
+| "Sites YAML not found" | Check `paths.input_dir` in config.yaml |
+| "ChromeDriver not found" | Ensure Chrome browser is installed |
+| "No output generated" | Check `input_dir` path and YAML file format |
+| "Empty RSS results" | Verify RSS URL is correct and feed contains items |
 
 ## Technical Details
 
 ### Selenium Configuration
 
-The scraper uses customizable Chrome options. Modify in `scraper/link_extractor.py`:
+Customize in `scraper/link_extractor.py`:
 
 ```python
 chrome_options.add_argument('--window-size=1920,1080')
@@ -353,9 +515,9 @@ chrome_options.add_argument('--disable-images')
 chrome_options.add_argument('--proxy-server=proxy:port')
 ```
 
-### OpenAI Integration
+### OpenAI Model Selection
 
-Configurable model selection in `config/config.yaml`:
+Configurable in `config/config.yaml`:
 
 ```yaml
 openai:
@@ -363,33 +525,72 @@ openai:
   timeout: 300
 ```
 
-Batch processing is implemented for efficiency (default: 50 links per API call).
-
-### Custom Site Handling
-
-For sites requiring special treatment:
-
-```python
-sites = [
-    {
-        'name': 'complex_site',
-        'url': 'https://example.com/grants',
-        'js': True,  # Enable JavaScript rendering
-        'next_selector': 'button.pagination-next',  # Custom pagination
-        'max_pages': 5  # Limit pagination depth
-    }
-]
-```
+Uses batch processing for efficiency (default: 50 links per API call).
 
 ### Logging
 
-Adjust log verbosity in `config/config.yaml`:
+Adjust verbosity in `config/config.yaml`:
 
 ```yaml
 logging:
-  level: "DEBUG"  # INFO, DEBUG, WARNING, ERROR
+  level: "DEBUG"  # INFO, WARNING, ERROR, CRITICAL
 ```
+
+## Documentation Index
+
+- **[Quick Start](docs/QUICKSTART.md)** - Get running in 5 minutes
+- **[RSS Integration Guide](docs/RSS_INTEGRATION.md)** - Setup and usage
+- **[Implementation Summary](docs/IMPLEMENTATION_SUMMARY.md)** - Technical details
+- **[Examples](examples/)** - Code examples and patterns
+
+## Performance
+
+Performance depends on configuration:
+
+| Scraper | Speed | Resource | Best For |
+|---------|-------|----------|----------|
+| **RSS** | ⚡⚡⚡ 1-2s/site | 🟢 Very Low | News feeds, structured data |
+| **HTTP** | ⚡⚡ 5-15s/site | 🟡 Medium | Static sites |
+| **Selenium** | ⚡ 30-60s/site | 🔴 High | Dynamic JS sites |
+
+**Tips:**
+- Use RSS when available (30-50x faster)
+- Use HTTP for static sites (100x faster than Selenium)
+- Use Selenium only for JavaScript-heavy sites
+- Limit `max_pages` to reduce scraping time
+
+## Development
+
+### Project Layout
+
+Core modules:
+- `scraper/` - All scraping logic (RSS, HTTP, Selenium, pagination)
+- `processors/` - Post-processing (deduplication, classification)
+- `config/` - Configuration management
+- `utils/` - Utilities (logging, file I/O, caching)
+
+Tests:
+- `tests/` - Pytest test suite
+
+### Running Tests
+
+```bash
+pytest
+pytest -v
+pytest tests/test_deduplicator.py
+pytest --cov=. --cov-report=html
+```
+
+### Adding a New Scraper
+
+1. Create extraction function in appropriate module (`scraper/`)
+2. Add to `scraper/__init__.py` exports
+3. Update `scraper/link_extractor.py` routing logic if needed
+4. Add unit tests in `tests/`
+5. Add example in `examples/`
 
 ---
 
-**Repository**: https://github.com/TBergh98/scrapiens
+**Repository**: https://github.com/TBergh98/scrapiens  
+**Status**: Active development  
+**License**: See LICENSE file
