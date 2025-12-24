@@ -46,7 +46,7 @@ class DigestBuilder:
 
     def find_latest_source(self, directory: Optional[Path] = None) -> Path:
         """Return the most recent grants_by_keywords_emails_*.json by timestamp in filename."""
-        dir_path = Path(directory) if directory else (self.base_dir / "intermediate_outputs")
+        dir_path = Path(directory) if directory else self.config.get_full_path('paths.output_match_keywords_dir')
         candidates = list(dir_path.glob("grants_by_keywords_emails_*.json"))
         if not candidates:
             raise FileNotFoundError(
@@ -114,7 +114,7 @@ class DigestBuilder:
             })
             total_grants += len(enriched)
 
-        output_dir = ensure_directory(self.base_dir / "intermediate_outputs")
+        output_dir = ensure_directory(self.config.get_full_path('paths.output_digests_dir'))
         if output_path is None:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             output_path = output_dir / f"email_digests_{timestamp}.json"

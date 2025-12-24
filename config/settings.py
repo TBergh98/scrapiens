@@ -155,6 +155,42 @@ class Config:
     def all_config(self) -> Dict[str, Any]:
         """Get the entire configuration dictionary."""
         return self._config.copy()
+    
+    def ensure_directories(self):
+        """
+        Ensure all output directories exist and are writable.
+        Creates directories if they don't exist.
+        
+        Raises:
+            PermissionError: If directories cannot be created or are not writable
+        """
+        directories_to_check = [
+            'paths.output_scrape_dir',
+            'paths.output_dir',
+            'paths.rss_feeds_dir',
+            'paths.output_deduplicate_dir',
+            'paths.output_classify_dir',
+            'paths.output_extract_dir',
+            'paths.output_match_keywords_dir',
+            'paths.output_digests_dir',
+        ]
+        
+        base_dir = self.get_path('paths.base_dir')
+        
+        for dir_key in directories_to_check:
+            relative_path = self.get(dir_key)
+            if relative_path:
+                full_path = base_dir / relative_path
+                try:
+                    full_path.mkdir(parents=True, exist_ok=True)
+                    # Test write access
+                    test_file = full_path / '.write_test'
+                    test_file.touch()
+                    test_file.unlink()
+                except (PermissionError, OSError) as e:
+                    raise PermissionError(
+                        f"Cannot create or write to directory {full_path}: {e}"
+                    )
 
 
 # Global configuration instance

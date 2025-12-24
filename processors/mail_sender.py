@@ -71,7 +71,7 @@ class MailSender:
 
     def find_latest_digest(self, directory: Optional[Path] = None) -> Path:
         """Return the most recent email_digests_*.json by timestamp in filename."""
-        dir_path = Path(directory) if directory else (self.base_dir / "intermediate_outputs")
+        dir_path = Path(directory) if directory else self.config.get_full_path('paths.output_digests_dir')
         candidates = list(dir_path.glob("email_digests_*.json"))
         if not candidates:
             raise FileNotFoundError(f"No email_digests_*.json files found in {dir_path}")
@@ -268,8 +268,8 @@ class MailSender:
         # Auto-find extracted grants if not provided
         if extracted_path is None:
             try:
-                intermediate_dir = self.base_dir / "intermediate_outputs"
-                candidates = list(intermediate_dir.glob("extracted_grants_*.json"))
+                extract_dir = self.config.get_full_path('paths.output_extract_dir')
+                candidates = list(extract_dir.glob("extracted_grants_*.json"))
                 if candidates:
                     extracted_path = max(candidates, key=lambda p: p.stat().st_mtime)
             except Exception:
@@ -286,8 +286,8 @@ class MailSender:
         # Auto-find keyword matches if not provided
         if match_path is None:
             try:
-                intermediate_dir = self.base_dir / "intermediate_outputs"
-                candidates = list(intermediate_dir.glob("grants_by_keywords_emails_*.json"))
+                match_dir = self.config.get_full_path('paths.output_match_keywords_dir')
+                candidates = list(match_dir.glob("grants_by_keywords_emails_*.json"))
                 if candidates:
                     match_path = max(candidates, key=lambda p: p.stat().st_mtime)
             except Exception:

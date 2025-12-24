@@ -26,12 +26,13 @@ class SiteProfileManager:
         
         Args:
             profiles_file: Path to site_profiles.json file. 
-                          If None, uses intermediate_outputs/site_profiles.json
+                          If None, uses config path
         """
         if profiles_file is None:
-            # Default to intermediate_outputs/site_profiles.json
-            base_dir = Path(__file__).parent.parent
-            profiles_file = base_dir / "intermediate_outputs" / "site_profiles.json"
+            # Get from config
+            from config.settings import get_config
+            config = get_config()
+            profiles_file = config.get_full_path('paths.site_profiles_file')
         
         self.profiles_file = Path(profiles_file)
         self.profiles_file.parent.mkdir(parents=True, exist_ok=True)

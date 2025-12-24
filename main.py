@@ -177,8 +177,8 @@ def cmd_extract(args):
     else:
         from datetime import datetime
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        # Save to intermediate_outputs (not to all_links subdirectory)
-        output_file = config.get_full_path('paths.classified_links_file').parent / f"extracted_grants_{timestamp}.json"
+        # Save to 04_extract/ directory
+        output_file = config.get_full_path('paths.output_extract_dir') / f"extracted_grants_{timestamp}.json"
 
     # Load keywords for keyword matching
     try:
@@ -278,10 +278,10 @@ def cmd_match_keywords(args):
         grants_file = args.input
     else:
         # Find the latest extracted_grants_*.json file
-        intermediate_dir = Path("intermediate_outputs")
-        grants_files = list(intermediate_dir.glob("extracted_grants_*.json"))
+        extract_dir = config.get_full_path('paths.output_extract_dir')
+        grants_files = list(extract_dir.glob("extracted_grants_*.json"))
         if not grants_files:
-            logger.error("No extracted_grants_*.json files found in intermediate_outputs/")
+            logger.error(f"No extracted_grants_*.json files found in {extract_dir}")
             return 1
         grants_file = str(max(grants_files, key=lambda p: p.stat().st_mtime))
         logger.info(f"Using grants file: {grants_file}")
@@ -413,7 +413,7 @@ def cmd_pipeline(args):
     
     # Step 3: Classify (without extraction)
     logger.info("\n--- Step 3/4: Classifying Links ---")
-    classified_file = (Path(args.dedup_output) if args.dedup_output else Path(args.scrape_output) if args.scrape_output else config.get_full_path('paths.output_dir')) / "classified_links.json"
+    classified_file = config.get_full_path('paths.classified_links_file')
     classify_args = argparse.Namespace(
         input=args.dedup_output,
         output=str(classified_file),
@@ -659,6 +659,18 @@ Examples:
     # Setup logging - use DEBUG level if verbose flag is set for any command
     log_level = 'DEBUG' if (hasattr(args, 'verbose') and args.verbose) else 'INFO'
     setup_logger('scrapiens', level=log_level)
+    
+    # Initialize config and ensure all directories exist with proper permissions
+    try:
+        config = get_config()
+        config.ensure_directories()
+        logger.debug("All output directories validated and ready")
+    except PermissionError as e:
+        logger.error(f"Directory permission error: {e}")
+        return 1
+    except Exception as e:
+        logger.error(f"Configuration error: {e}")
+        return 1
     
     # Execute command
     commands = {

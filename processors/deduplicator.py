@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Set
 from utils.logger import get_logger
 from utils.file_utils import save_json, load_json
+from config.settings import get_config
 
 logger = get_logger(__name__)
 
@@ -132,7 +133,7 @@ def deduplicate_from_directory(
 ) -> Dict[str, Any]:
     """
     Load all link files from a directory, deduplicate, and save results.
-    Also loads RSS metadata from sibling rss_feeds/ directory if available.
+    Also loads RSS metadata from rss_feeds/ directory if available.
     
     Args:
         input_dir: Directory containing individual link files (JSON format)
@@ -164,8 +165,9 @@ def deduplicate_from_directory(
     # Deduplicate
     results = deduplicate_links_with_keywords(sites_with_keywords)
     
-    # Load RSS metadata from sibling rss_feeds/ directory
-    rss_dir = input_dir.parent / "rss_feeds"
+    # Load RSS metadata from rss_feeds/ directory
+    config = get_config()
+    rss_dir = config.get_full_path('paths.rss_feeds_dir')
     rss_metadata = {}
     
     if rss_dir.exists():

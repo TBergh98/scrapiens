@@ -279,7 +279,8 @@ class GrantEmailMatcher:
             # Determine output file if not specified
             if output_file is None:
                 timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-                output_file = f"intermediate_outputs/grants_by_keywords_emails_{timestamp}.json"
+                output_dir = self.config.get_full_path('paths.output_match_keywords_dir')
+                output_file = output_dir / f"grants_by_keywords_emails_{timestamp}.json"
             
             # Save results
             logger.info(f"Saving {len(matched_results)} matched grants to {output_file}...")

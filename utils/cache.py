@@ -22,9 +22,7 @@ class CacheManager:
         if cache_file is None:
             from config.settings import get_config
             config = get_config()
-            cache_filename = config.get('cache.file', 'grants_cache.json')
-            output_dir = config.get_path('paths.base_dir') / config.get('paths.output_dir', 'all_links')
-            cache_file_path = output_dir / cache_filename
+            cache_file_path = config.get_full_path('paths.grants_cache_file')
         else:
             cache_file_path = cache_file if isinstance(cache_file, Path) else Path(cache_file)
         

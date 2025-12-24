@@ -6,12 +6,32 @@ paths:
   base_dir: "."
   # Input directory for YAML configuration files
   input_dir: "input"
-  # Output directory for extracted links from scraping
-  output_dir: "intermediate_outputs/all_links"
-  # Unified links file (after deduplication)
-  unified_links_file: "intermediate_outputs/link_unificati.json"
-  # Classified links file (output of classify command)
-  classified_links_file: "intermediate_outputs/classified_links.json"
+  # Templates directory
+  templates_dir: "templates"
+  
+  # Stage 1: Scraping outputs
+  output_scrape_dir: "intermediate_outputs/01_scrape"
+  output_dir: "intermediate_outputs/01_scrape/all_links"  # Kept for backward compatibility
+  rss_feeds_dir: "intermediate_outputs/01_scrape/rss_feeds"
+  
+  # Stage 2: Deduplication outputs
+  output_deduplicate_dir: "intermediate_outputs/02_deduplicate"
+  unified_links_file: "intermediate_outputs/02_deduplicate/link_unificati.json"
+  
+  # Stage 3: Classification outputs
+  output_classify_dir: "intermediate_outputs/03_classify"
+  classified_links_file: "intermediate_outputs/03_classify/classified_links.json"
+  
+  # Stage 4: Extraction outputs
+  output_extract_dir: "intermediate_outputs/04_extract"
+  site_profiles_file: "intermediate_outputs/04_extract/site_profiles.json"
+  grants_cache_file: "intermediate_outputs/04_extract/grants_cache.json"
+  
+  # Stage 5: Keyword matching outputs
+  output_match_keywords_dir: "intermediate_outputs/05_match_keywords"
+  
+  # Stage 6: Digest building outputs
+  output_digests_dir: "intermediate_outputs/06_digests"
 
 # Input Files Configuration (YAML format)
 input_files:

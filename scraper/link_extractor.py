@@ -275,8 +275,8 @@ def scrape_sites(
     """
     Scrape multiple websites and save results.
     
-    RSS sites are saved to intermediate_outputs/rss_feeds/ with full metadata.
-    Standard sites are saved to output_dir/ as before.
+    RSS sites are saved to rss_feeds/ directory with full metadata.
+    Standard sites are saved to all_links/ directory as before.
     
     Args:
         sites: List of site configuration dictionaries
@@ -291,11 +291,13 @@ def scrape_sites(
         logger.warning("No sites to scrape")
         return {}
     
-    # Ensure output directory exists
+    config = get_config()
+    
+    # Ensure output directories exist
     output_dir.mkdir(parents=True, exist_ok=True)
     
-    # Create RSS feeds directory (sibling to all_links/)
-    rss_dir = output_dir.parent / "rss_feeds"
+    # Get RSS feeds directory from config
+    rss_dir = config.get_full_path('paths.rss_feeds_dir')
     rss_dir.mkdir(parents=True, exist_ok=True)
     
     results = {}
