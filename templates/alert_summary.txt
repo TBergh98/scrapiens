@@ -1,0 +1,41 @@
+Scrapiens - Riepilogo Elaborazione
+==================================
+
+Data/ora: {{ processing_date }}
+
+ESTRAZIONE BANDI
+----------------
+Bandi estratti totali: {{ total_extracted_grants }}
+Bandi con estrazione riuscita: {{ extraction_success }}/{{ total_extracted_grants }}
+Tasso di successo estrazione: {{ extraction_success_rate }}%
+
+MATCHING PAROLE CHIAVE
+----------------------
+Bandi con match keyword: {{ grants_with_keyword_matches }}/{{ total_extracted_grants }}
+Tasso di match: {{ match_rate }}%
+Email nel sistema: {{ total_emails_in_system }}
+
+INVIO DIGEST
+------------
+Ricercatori con digest: {{ total_recipients }}
+Bandi totali nei digest: {{ total_grants_in_digests }}
+Mail inviate con successo: {{ successful_sends_count }}
+Mail fallite: {{ failed_sends_count }}
+
+{% if failed_sends_count > 0 %}
+DETTAGLI ERRORI INVIO
+---------------------
+{% for error in failed_sends %}
+- {{ error.recipient }}: {{ error.error }}
+{% endfor %}
+{% endif %}
+
+{% if warnings_count > 0 %}
+AVVISI DA CONTROLLARE
+---------------------
+{% for w in warnings %}
+- {{ w }}
+{% endfor %}
+{% endif %}
+
+Questo è un riepilogo automatico della pipeline Scrapiens.

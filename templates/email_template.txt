@@ -1,0 +1,13 @@
+Ciao {{ display_name }},
+
+Oggi il sistema ha rilevato {{ total_grants }} bandi compatibili con le tue keywords: {{ keywords|join(', ') if keywords else 'n.d.' }}.
+
+{% for grant in grants %}- {{ grant.title or 'Titolo non disponibile' }}
+  Ente: {{ grant.organization or 'n.d.' }}
+  Scadenza: {{ grant.deadline_label }}
+  Link: {{ grant.url or 'n.d.' }}
+  Trovato per: {{ grant.matched_keywords|join(', ') if grant.matched_keywords else 'n.d.' }}
+{% if grant.abstract %}  Abstract: {{ grant.abstract }}
+{% endif %}
+
+{% endfor %}Nota: digest generato automaticamente. Verifica le scadenze e segnala eventuali problemi.

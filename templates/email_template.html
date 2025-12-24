@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8" />
+  <title>Digest bandi</title>
+  <style>
+    body { font-family: Arial, sans-serif; background: #f7f7f9; color: #1c1c1c; margin: 0; padding: 0; }
+    .container { max-width: 760px; margin: 0 auto; padding: 24px; }
+    .header { background: #0b5394; color: #ffffff; padding: 16px 20px; border-radius: 10px; }
+    .header h1 { margin: 0 0 6px 0; font-size: 20px; }
+    .summary { margin: 16px 0; background: #ffffff; padding: 16px; border-radius: 10px; border: 1px solid #e1e4ea; }
+    .summary strong { color: #0b5394; }
+    .card { background: #ffffff; border: 1px solid #e1e4ea; border-radius: 10px; padding: 16px; margin-bottom: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+    .title { margin: 0 0 4px 0; font-size: 17px; }
+    .title a { color: #0b5394; text-decoration: none; }
+    .title a:hover { text-decoration: underline; }
+    .meta { font-size: 13px; color: #4a4a4a; margin-bottom: 8px; display: flex; gap: 10px; flex-wrap: wrap; }
+    .badge { display: inline-block; padding: 4px 8px; border-radius: 6px; font-size: 12px; font-weight: 600; }
+    .deadline-critical { background: #ffe6e6; color: #a80000; }
+    .deadline-warning { background: #fff4e0; color: #b35900; }
+    .deadline-ok { background: #e5f5ec; color: #1d6f42; }
+    .deadline-past { background: #f1f1f1; color: #555555; }
+    .deadline-missing { background: #f1f1f1; color: #555555; }
+    .keywords { margin-top: 10px; }
+    .keywords-label { font-size: 12px; font-weight: 700; letter-spacing: 0.03em; text-transform: uppercase; color: #0b5394; margin-bottom: 6px; }
+    .keyword-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+    .chip { display: inline-flex; align-items: center; padding: 6px 10px; border-radius: 14px; font-size: 12px; font-weight: 600; background: #eef3fb; color: #0b5394; border: 1px solid #d7e3ff; }
+    .chip-empty { background: #f3f3f3; color: #666666; border-color: #e0e0e0; }
+    .abstract { margin-top: 8px; font-size: 14px; line-height: 1.4; color: #212121; }
+    .footer { margin-top: 18px; font-size: 12px; color: #555555; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>Ciao {{ display_name }},</h1>
+      <div>Oggi Scrapiens ha rilevato {{ total_grants }} bandi compatibili con le tue keywords: {{ keywords|join(', ') if keywords else 'n.d.' }}.</div>
+    </div>
+
+    <div class="summary">
+      <strong>Totale bandi:</strong> {{ total_grants }}
+    </div>
+
+    {% for grant in grants %}
+    <div class="card">
+      <h2 class="title"><a href="{{ grant.url }}" target="_blank" rel="noopener noreferrer">{{ grant.title or 'Titolo non disponibile' }}</a></h2>
+      <div class="meta">
+        {% if grant.organization %}<span>{{ grant.organization }}</span>{% endif %}
+        <span class="badge deadline-{{ grant.deadline_status }}">{{ grant.deadline_label }}</span>
+      </div>
+      <div class="keywords">
+        <div class="keywords-label">Trovato per</div>
+        <div class="keyword-chips">
+          {% if grant.matched_keywords %}
+            {% for kw in grant.matched_keywords %}
+              <span class="chip">{{ kw }}</span>
+            {% endfor %}
+          {% else %}
+            <span class="chip chip-empty">n.d.</span>
+          {% endif %}
+        </div>
+      </div>
+      {% if grant.abstract %}
+      <div class="abstract">{{ grant.abstract }}</div>
+      {% endif %}
+    </div>
+    {% endfor %}
+
+    <div class="footer">
+      Attenzione: questo digest è generato automaticamente. Verifica sempre le informazioni critiche (es. scadenze) e segnala eventuali problemi.
+    </div>
+  </div>
+</body>
+</html>
