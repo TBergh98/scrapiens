@@ -247,7 +247,6 @@ def cmd_extract(args):
         )
         
         # Load saved results to display final stats
-        from utils.file_utils import load_json
         results_data = load_json(output_file)
         
         logger.info("=== Extraction Complete ===")

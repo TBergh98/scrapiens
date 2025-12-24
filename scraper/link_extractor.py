@@ -40,6 +40,10 @@ def create_webdriver() -> webdriver.Chrome:
     chrome_options.add_argument('--disable-dev-shm-usage')
     chrome_options.add_argument('--disable-blink-features=AutomationControlled')
     
+    # Use 'eager' page load strategy: stop waiting when DOM is interactive
+    # This prevents timeout errors on sites with infinite-loading scripts
+    chrome_options.page_load_strategy = 'eager'
+    
     driver = webdriver.Chrome(options=chrome_options)
     
     # Set timeouts
@@ -223,7 +227,7 @@ def scrape_site(driver: webdriver.Chrome, site_config: Dict) -> Set[str]:
                     driver.get(new_url)
                     
                     wait_for_page_ready(driver)
-                    time.sleep(2)
+                    time.sleep(1)
                     
                     if js:
                         scroll_page_for_lazy_content(driver)
@@ -253,7 +257,7 @@ def scrape_site(driver: webdriver.Chrome, site_config: Dict) -> Set[str]:
                 break
             
             last_url = driver.current_url
-            time.sleep(2)
+            time.sleep(1)
         
         total_elapsed = time.time() - site_start_time
         avg_time_per_link = (total_elapsed / len(all_links)) * 1000 if all_links else 0
