@@ -275,6 +275,9 @@ def scrape_sites(
     """
     Scrape multiple websites and save results.
     
+    RSS sites are saved to intermediate_outputs/rss_feeds/ with full metadata.
+    Standard sites are saved to output_dir/ as before.
+    
     Args:
         sites: List of site configuration dictionaries
         output_dir: Directory to save output files
@@ -291,6 +294,10 @@ def scrape_sites(
     # Ensure output directory exists
     output_dir.mkdir(parents=True, exist_ok=True)
     
+    # Create RSS feeds directory (sibling to all_links/)
+    rss_dir = output_dir.parent / "rss_feeds"
+    rss_dir.mkdir(parents=True, exist_ok=True)
+    
     results = {}
     driver = None
     
@@ -299,20 +306,45 @@ def scrape_sites(
         
         for site in sites:
             name = site['name']
+            rss_url = site.get('rss_url')
             
             try:
-                links = scrape_site(driver, site)
-                results[name] = sorted(list(links))
+                # RSS PATH: Extract with metadata and save separately
+                if rss_url:
+                    logger.info(f"🔔 Site '{name}' uses RSS - extracting with metadata")
+                    
+                    # Extract RSS metadata
+                    rss_entries = RssExtractor.scrape_site_rss_with_metadata(site)
+                    
+                    # Extract URLs for backward compatibility
+                    links = {entry['url'] for entry in rss_entries if 'url' in entry}
+                    results[name] = sorted(list(links))
+                    
+                    if save_individual:
+                        # Save RSS metadata to rss_feeds/ directory
+                        rss_output_file = rss_dir / f"{name}_rss.json"
+                        save_json(rss_entries, rss_output_file)
+                        logger.info(f"  → Saved {len(rss_entries)} RSS entries with metadata to {rss_output_file}")
+                        
+                        # ALSO save standard links format for backward compatibility
+                        output_file = output_dir / f"{name}_links.json"
+                        links_json = {link: [] for link in links}
+                        save_json(links_json, output_file)
                 
-                # Save individual file in JSON format (no keywords)
-                if save_individual:
-                    output_file = output_dir / f"{name}_links.json"
-                    # Create dictionary mapping each link to empty array (keywords removed)
-                    links_json = {
-                        link: []
-                        for link in links
-                    }
-                    save_json(links_json, output_file)
+                # STANDARD PATH: Use existing scrape_site logic
+                else:
+                    links = scrape_site(driver, site)
+                    results[name] = sorted(list(links))
+                    
+                    # Save individual file in JSON format (no keywords)
+                    if save_individual:
+                        output_file = output_dir / f"{name}_links.json"
+                        # Create dictionary mapping each link to empty array (keywords removed)
+                        links_json = {
+                            link: []
+                            for link in links
+                        }
+                        save_json(links_json, output_file)
                 
             except Exception as e:
                 logger.error(f"Failed to scrape {name}: {e}", exc_info=True)

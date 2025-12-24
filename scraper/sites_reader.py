@@ -59,6 +59,18 @@ def load_sites_from_yaml(yaml_path: Path) -> List[Dict[str, Any]]:
     
     for idx, site_config in enumerate(sites_list):
         try:
+            # Soft-validate and warn on deprecated/ignored fields
+            if 'prefer_rss' in site_config:
+                logger.warning(
+                    f"Site '{site_config.get('name', f'#${idx}')}' uses 'prefer_rss' which is ignored. "
+                    "RSS is always preferred when 'rss_url' is present. Remove 'prefer_rss'."
+                )
+            if 'rss' in site_config:
+                logger.warning(
+                    f"Site '{site_config.get('name', f'#${idx}')}' contains 'rss'. Autodiscovery is not supported; "
+                    "use 'rss_url' with an explicit feed URL or omit the field."
+                )
+
             # Validate required fields
             required_fields = ['name', 'url']
             for field in required_fields:
