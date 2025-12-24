@@ -75,10 +75,13 @@ sites:
 Edit `input/keywords.yaml` - add recipients and their keywords:
 ```yaml
 keywords:
-  mario@email.it:
-    - ricerca
-  anna@email.it:
-    - bandi
+  researcher1@example.com:
+    - animal health
+    - zoonoses
+    - one health
+  researcher2@example.com:
+    - veterinary medicine
+    - infectious diseases
 ```
 
 ### 3. Run Pipeline
@@ -491,15 +494,36 @@ sites:
 
 ```yaml
 keywords:
-  mario@example.it:
-    - ricerca
-    - innovazione
-  anna@example.it:
-    - bandi
-    - finanziamenti
+  researcher1@example.com:
+    - animal health
+    - zoonoses
+    - one health
+    - biodiversity
+  researcher2@example.com:
+    - veterinary medicine
+    - infectious diseases
+    - public health
+  researcher3@example.com:
+    - climate change
+    - sustainability
+    - research infrastructures
 ```
 
+**Field Descriptions:**
+- Each key is an email address (recipient)
+- Each value is a list of keywords that interest the recipient
+- Classification will match grants to recipients based on keyword occurrences in grant titles/descriptions
+- Keywords are case-insensitive and use word-boundary matching
+
 Maps email addresses to keywords they're interested in. Classification will assign recipients based on keyword matches.
+
+### Excel File (Optional) (`input/Elenco nominativi-parole chiave-siti.xlsx`)
+
+Optional Excel file for bulk configuration. Can contain:
+- **Sites sheet**: List of URLs to scrape (one per row)
+- **Keywords sheet**: Email addresses with associated keywords
+
+This file is used by `excel_reader.py` module for backward compatibility with legacy configurations. The YAML files (`sites.yaml` and `keywords.yaml`) are the recommended format.
 
 ## Output Formats
 
