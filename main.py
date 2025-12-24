@@ -230,100 +230,31 @@ def cmd_extract(args):
         from utils.cache import CacheManager
         
         cache_manager = CacheManager()
-        extractor = GrantExtractor()
+        extractor = GrantExtractor(model=args.model)
         
+        # Prepare classification map
+        classification_map = {c['url']: c for c in classifications}
+        
+        # Extract grants with incremental saving
         extracted_grants = extractor.extract_batch_parallel(
             single_grant_urls,
             cache_manager=cache_manager,
-            force_refresh=args.force_refresh
+            force_refresh=args.force_refresh,
+            output_file=output_file,
+            classifications=classification_map,
+            keywords=keywords,
+            keyword_classifier=classifier
         )
         
-        # Merge classification and extraction data
-        classification_map = {c['url']: c for c in classifications}
-        
-        grants = []
-        for grant in extracted_grants:
-            url = grant['url']
-            classification = classification_map.get(url, {})
-            
-            # Match keywords to actual content
-            matched_keywords = []
-            recipients = []
-            
-            if keywords and grant.get('extraction_success'):
-                matched_keywords, recipients = classifier._match_keywords_to_content(
-                    grant,
-                    keywords
-                )
-            
-            # Build grant entry
-            grant_entry = {
-                'url': url,
-                'title': grant.get('title'),
-                'organization': grant.get('organization'),
-                'deadline': grant.get('deadline'),
-                'funding_amount': grant.get('funding_amount'),
-                'abstract': grant.get('abstract'),
-                'category': classification.get('category', 'single_grant'),
-                'classification_reason': classification.get('reason', ''),
-                'extraction_success': grant.get('extraction_success', False),
-                'extraction_date': grant.get('extraction_date'),
-                'extraction_error': grant.get('error'),
-                'matched_keywords': matched_keywords,
-                'recipients': recipients
-            }
-            
-            grants.append(grant_entry)
-        
-        # Build notifications mapping
-        logger.info("Building notifications mapping")
-        notifications = {}
-        
-        for grant in grants:
-            if not grant.get('recipients'):
-                continue
-            
-            for email in grant['recipients']:
-                if email not in notifications:
-                    notifications[email] = {
-                        'matched_grants': [],
-                        'total_grants': 0
-                    }
-                
-                notifications[email]['matched_grants'].append({
-                    'url': grant['url'],
-                    'title': grant['title'],
-                    'deadline': grant['deadline'],
-                    'funding_amount': grant['funding_amount'],
-                    'matched_keywords': grant['matched_keywords']
-                })
-                notifications[email]['total_grants'] += 1
-        
-        # Calculate statistics
-        extraction_success = sum(1 for g in grants if g.get('extraction_success', False))
-        stats = {
-            'total_extracted': len(grants),
-            'extraction_success': extraction_success,
-            'total_recipients': len(notifications),
-            'total_matched_grants': sum(n['total_grants'] for n in notifications.values())
-        }
-        
-        results = {
-            'grants': grants,
-            'notifications': notifications,
-            'stats': stats,
-            'model': args.model or config.get('openai.model', 'gpt-4o-mini')
-        }
-        
-        # Save results
-        from utils.file_utils import save_json
-        save_json(results, output_file)
+        # Load saved results to display final stats
+        from utils.file_utils import load_json
+        results_data = load_json(output_file)
         
         logger.info("=== Extraction Complete ===")
-        logger.info(f"Extracted: {len(grants)}")
-        logger.info(f"Extraction success: {extraction_success}/{len(grants)}")
-        logger.info(f"Total recipients: {len(notifications)}")
-        logger.info(f"Total matched grants: {stats['total_matched_grants']}")
+        logger.info(f"Extracted: {len(extracted_grants)}")
+        logger.info(f"Extraction success: {results_data['stats']['extraction_success']}/{len(extracted_grants)}")
+        logger.info(f"Total recipients: {results_data['stats']['total_recipients']}")
+        logger.info(f"Total matched grants: {results_data['stats']['total_matched_grants']}")
         logger.info(f"Results saved to {output_file}")
         
         return 0

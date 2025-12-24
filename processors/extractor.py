@@ -522,11 +522,115 @@ class GrantExtractor:
             if own_driver:
                 driver.quit()
     
+    def _save_grants_incrementally(
+        self,
+        output_file: Path,
+        grants: List[Dict[str, Any]],
+        classifications: Optional[Dict[str, Dict[str, Any]]] = None,
+        keywords: Optional[Dict[str, Any]] = None,
+        keyword_classifier: Optional[Any] = None
+    ) -> None:
+        """
+        Save extracted grants incrementally to the output file.
+        
+        This maintains the complete structure with grants, notifications, stats, and model info,
+        similar to the final output format.
+        
+        Args:
+            output_file: Path where to save the grants
+            grants: List of extracted grant dictionaries
+            classifications: Optional dict mapping URLs to classification data
+            keywords: Optional keywords dict for matching
+            keyword_classifier: Optional classifier instance for keyword matching
+        """
+        # Build complete grant entries with classification and keyword matching data
+        complete_grants = []
+        
+        for grant in grants:
+            url = grant['url']
+            classification = classifications.get(url, {}) if classifications else {}
+            
+            # Match keywords if classifier and keywords are provided
+            matched_keywords = []
+            recipients = []
+            
+            if keywords and keyword_classifier and grant.get('extraction_success'):
+                matched_keywords, recipients = keyword_classifier._match_keywords_to_content(
+                    grant,
+                    keywords
+                )
+            
+            # Build complete grant entry
+            grant_entry = {
+                'url': url,
+                'title': grant.get('title'),
+                'organization': grant.get('organization'),
+                'deadline': grant.get('deadline'),
+                'funding_amount': grant.get('funding_amount'),
+                'abstract': grant.get('abstract'),
+                'category': classification.get('category', 'single_grant'),
+                'classification_reason': classification.get('reason', ''),
+                'extraction_success': grant.get('extraction_success', False),
+                'extraction_date': grant.get('extraction_date'),
+                'extraction_error': grant.get('error'),
+                'matched_keywords': matched_keywords,
+                'recipients': recipients
+            }
+            complete_grants.append(grant_entry)
+        
+        # Build notifications mapping
+        notifications = {}
+        for grant in complete_grants:
+            if not grant.get('recipients'):
+                continue
+            
+            for email in grant['recipients']:
+                if email not in notifications:
+                    notifications[email] = {
+                        'matched_grants': [],
+                        'total_grants': 0
+                    }
+                
+                notifications[email]['matched_grants'].append({
+                    'url': grant['url'],
+                    'title': grant['title'],
+                    'deadline': grant['deadline'],
+                    'funding_amount': grant['funding_amount'],
+                    'matched_keywords': grant['matched_keywords']
+                })
+                notifications[email]['total_grants'] += 1
+        
+        # Calculate statistics
+        extraction_success = sum(1 for g in complete_grants if g.get('extraction_success', False))
+        stats = {
+            'total_extracted': len(complete_grants),
+            'extraction_success': extraction_success,
+            'total_recipients': len(notifications),
+            'total_matched_grants': sum(n['total_grants'] for n in notifications.values())
+        }
+        
+        # Build and save output
+        output_data = {
+            'grants': complete_grants,
+            'notifications': notifications,
+            'stats': stats,
+            'model': self.model
+        }
+        
+        from utils.file_utils import save_json
+        save_json(output_data, output_file)
+        
+        logger.debug(f"Incrementally saved {len(complete_grants)} grants to {output_file}")
+    
     def extract_batch_parallel(
         self,
         urls: List[str],
         cache_manager: Optional[Any] = None,
-        force_refresh: bool = False
+        force_refresh: bool = False,
+        output_file: Optional[Path] = None,
+        classifications: Optional[Dict[str, Dict[str, Any]]] = None,
+        keywords: Optional[Dict[str, Any]] = None,
+        keyword_classifier: Optional[Any] = None
     ) -> List[Dict[str, Any]]:
         """
         Extract grant details from multiple URLs in parallel.
@@ -535,6 +639,10 @@ class GrantExtractor:
             urls: List of URLs to extract from
             cache_manager: Optional cache manager for caching results
             force_refresh: If True, ignore cache and re-extract
+            output_file: Optional path to save grants incrementally
+            classifications: Optional dict mapping URLs to classification data
+            keywords: Optional keywords dict for matching
+            keyword_classifier: Optional classifier instance for keyword matching
             
         Returns:
             List of grant detail dictionaries
@@ -584,6 +692,16 @@ class GrantExtractor:
                         # Update cache
                         if cache_manager and result['extraction_success']:
                             cache_manager.update_cache(url, result)
+                        
+                        # Save incrementally if output_file is provided
+                        if output_file:
+                            self._save_grants_incrementally(
+                                output_file=output_file,
+                                grants=results,
+                                classifications=classifications,
+                                keywords=keywords,
+                                keyword_classifier=keyword_classifier
+                            )
                         
                         if completed % 10 == 0:
                             logger.info(f"Progress: {completed}/{len(urls_to_extract)} extractions completed")
