@@ -157,42 +157,25 @@ class GrantExtractor:
         """
         config = get_config()
         
-        prompt_template = config.get('extractor.extraction_prompt', '''
-Analyze the following HTML content from a research grant/call page and extract the following information:
-
-1. **title**: The title of the grant/call (string)
-2. **organization**: The organization offering the grant (string)
-3. **abstract**: A brief summary or description of the grant (string, max 500 characters)
-4. **deadline**: The application deadline (CRITICAL: ONLY if EXPLICITLY stated in the text. Return null if not found or ambiguous. Format as YYYY-MM-DD. DO NOT invent or guess dates.)
-5. **funding_amount**: The funding amount available (string, e.g., "€500,000" or "up to $1M")
-
-IMPORTANT RULES:
-- Return ONLY factual information that is explicitly present in the HTML
-- For deadline: Search in multiple places:
-  * Visible text (scadenza, deadline, data limite, application deadline, closing date)
-  * JSON-LD structured data: Look for "deadline", "endDate", "expires", "applicationDeadline" fields
-  * HTML5 data attributes: Check data-deadline, data-date, data-end, data-expiration attributes
-  * HTML comments containing dates: <!-- deadline: ... --> or similar
-  * Script tags with JSON: <script type="application/ld+json"> or similar
-  * Meta tags: Check og:expiration, article:published_time, article:expiration_time
-  * If you see text like "scadenza: 31/12/2024" or "deadline: December 31, 2024", extract it
-  * If dates are vague like "coming soon" or "TBD", return null
-- For funding_amount: Look for keywords like "importo", "finanziamento", "budget", "funding", "amount" in visible text and data attributes
-- If any field cannot be found explicitly, return null (not empty string)
-- Return valid JSON only
-
-URL: {url}
-
-HTML Content (truncated to first 15000 chars):
-{html}
-
-Return a JSON object with these exact keys: title, organization, abstract, deadline, funding_amount
-''')
+        # Get prompt from config.yaml - this is the ONLY source of truth
+        # The config prompt includes the critical 'is_grant' field that validates if page is a grant
+        prompt_template = config.get('extractor.extraction_prompt')
+        
+        if not prompt_template:
+            raise ValueError(
+                "Missing 'extractor.extraction_prompt' in config.yaml. "
+                "This prompt is required and must include 'is_grant' validation field."
+            )
         
         # Truncate HTML to avoid token limits
         html_truncated = html_content[:15000]
         
-        prompt = prompt_template.format(url=url, html=html_truncated)
+        # Avoid str.format here because the prompt contains literal JSON braces; simple replaces prevent KeyError
+        prompt = (
+            prompt_template
+            .replace("{url}", url)
+            .replace("{html}", html_truncated)
+        )
         
         logger.debug(f"Sending extraction request for: {url}")
         
@@ -227,6 +210,9 @@ Return a JSON object with these exact keys: title, organization, abstract, deadl
             json_end = response_text.find('```', json_start)
             response_text = response_text[json_start:json_end].strip()
         
+        # Log raw response for debugging malformed JSON issues
+        logger.debug(f"Raw GPT response (first 500 chars): {response_text[:500]}")
+        
         try:
             result = json.loads(response_text)
             
@@ -235,28 +221,67 @@ Return a JSON object with these exact keys: title, organization, abstract, deadl
             if isinstance(result, dict):
                 fixed_result = {}
                 for key, value in result.items():
-                    # Remove quotes from key if present
-                    clean_key = key.strip('"\'')
-                    fixed_result[clean_key] = value
+                    try:
+                        # Remove quotes from key if present
+                        clean_key = key.strip('"\'')
+                        fixed_result[clean_key] = value
+                    except Exception as e:
+                        # If key cleaning fails for any reason, keep original key
+                        logger.warning(f"Failed to clean key '{key}': {e}. Using original key.")
+                        fixed_result[key] = value
                 result = fixed_result
+                
+            logger.debug(f"Parsed result keys: {list(result.keys())}")
+            logger.debug(f"Result dict content: {result}")
+            
+            # Verify result is a dict before proceeding
+            if not isinstance(result, dict):
+                raise ValueError(f"Expected dict from GPT, got {type(result)}: {result}")
             
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse JSON from GPT response: {e}")
             logger.debug(f"Raw response: {response_text}")
             raise ValueError(f"Invalid JSON from GPT: {str(e)}")
         
+        # Helper function to get value with fallback for malformed keys
+        def safe_get(d, key, default=None):
+            """Get value from dict, trying multiple key variants."""
+            if not isinstance(d, dict):
+                logger.error(f"safe_get called with non-dict: {type(d)}")
+                return default
+                
+            # Try exact key
+            if key in d:
+                return d[key]
+            # Try with quotes
+            quoted_key = f'"{key}"'
+            if quoted_key in d:
+                return d[quoted_key]
+            # Try with single quotes
+            single_quoted = f"'{key}'"
+            if single_quoted in d:
+                return d[single_quoted]
+
+            # Log all available keys when key not found
+            logger.warning(f"Key '{key}' not found. Available keys: {list(d.keys())}")
+            return default
+        
         # Handle non-grant pages (is_grant: false)
+        # Use safe_get to handle various key formats
         try:
-            is_grant = result.get('is_grant', True)
-        except (AttributeError, TypeError) as e:
-            logger.error(f"Error accessing 'is_grant' field in result: {e}. Result type: {type(result)}")
-            raise ValueError(f"Invalid result structure: {str(e)}")
+            is_grant = safe_get(result, 'is_grant', True)
+            logger.debug(f"is_grant value: {is_grant} (type: {type(is_grant)})")
+        except Exception as e:
+            logger.error(f"Error getting is_grant from result: {e}")
+            logger.error(f"Result type: {type(result)}, Result: {result}")
+            raise
         
         if not is_grant:
-            logger.info(f"Page is not a grant: {result.get('invalid_reason', 'No reason provided')}")
+            invalid_reason = safe_get(result, 'invalid_reason', 'Unknown reason')
+            logger.info(f"Page is not a grant: {invalid_reason}")
             return {
                 'is_grant': False,
-                'invalid_reason': result.get('invalid_reason'),
+                'invalid_reason': invalid_reason,
                 'title': None,
                 'organization': None,
                 'abstract': None,
@@ -321,8 +346,14 @@ Return a JSON object with these exact keys: title, organization, abstract, deadl
             
             logger.info(f"Extraction successful for {url} (took {extraction_time:.2f}s)")
             
-            # Check if page is actually a grant
-            if extracted_data.get('is_grant') is False:
+            # Check if page is actually a grant - with robust error handling
+            try:
+                is_grant_value = extracted_data.get('is_grant')
+            except AttributeError:
+                logger.error(f"extracted_data is not a dict: {type(extracted_data)}, value: {extracted_data}")
+                raise
+            
+            if is_grant_value is False:
                 result = {
                     'url': url,
                     'title': None,

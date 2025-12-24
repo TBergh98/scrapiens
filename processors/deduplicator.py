@@ -131,7 +131,8 @@ def deduplicate_from_directory(
     file_pattern: str = "*_links.json"
 ) -> Dict[str, Any]:
     """
-    Load all link files from a directory, deduplicate (preserving keywords), and save results.
+    Load all link files from a directory, deduplicate, and save results.
+    Also loads RSS metadata from sibling rss_feeds/ directory if available.
     
     Args:
         input_dir: Directory containing individual link files (JSON format)
@@ -139,7 +140,7 @@ def deduplicate_from_directory(
         file_pattern: Pattern to match link files
         
     Returns:
-        Deduplication results dictionary
+        Deduplication results dictionary with RSS metadata
     """
     logger.info(f"Loading links from directory: {input_dir}")
     
@@ -150,6 +151,7 @@ def deduplicate_from_directory(
         logger.warning("No links loaded from directory")
         return {
             'links': [],
+            'rss_metadata': {},
             'stats': {
                 'total_sites': 0,
                 'total_links_before': 0,
@@ -161,6 +163,29 @@ def deduplicate_from_directory(
     
     # Deduplicate
     results = deduplicate_links_with_keywords(sites_with_keywords)
+    
+    # Load RSS metadata from sibling rss_feeds/ directory
+    rss_dir = input_dir.parent / "rss_feeds"
+    rss_metadata = {}
+    
+    if rss_dir.exists():
+        logger.info(f"Loading RSS metadata from {rss_dir}")
+        for rss_file in rss_dir.glob("*_rss.json"):
+            site_name = rss_file.stem.replace('_rss', '')
+            rss_entries = load_json(rss_file)
+            
+            if rss_entries:
+                # Build URL -> metadata mapping
+                for entry in rss_entries:
+                    if 'url' in entry:
+                        rss_metadata[entry['url']] = entry
+                
+                logger.debug(f"Loaded {len(rss_entries)} RSS entries from {site_name}")
+        
+        logger.info(f"Total RSS metadata loaded: {len(rss_metadata)} URLs")
+    
+    # Add RSS metadata to results
+    results['rss_metadata'] = rss_metadata
     
     # Save results
     save_json(results, output_file)

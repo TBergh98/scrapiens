@@ -47,43 +47,152 @@ class LinkClassifier:
                 logger.info(f"Still processing... ({counter * self.progress_interval} seconds elapsed)")
                 counter += 1
     
-    def _classify_with_regex(self, links: List[str]) -> tuple[List[Dict[str, Any]], List[str]]:
+    def _extract_rss_title(self, metadata: Dict[str, Any]) -> tuple:
+        """
+        Robustly extract title from RSS entry metadata with fallback chain.
+        Future-proof: searches standard RSS fields in priority order.
+        
+        Priority chain:
+            1. title (RSS standard)
+            2. title_detail (feedparser detail)
+            3. summary (Atom standard)
+            4. description (extracted fallback)
+        
+        Args:
+            metadata: RSS entry metadata dict from rss_extractor
+            
+        Returns:
+            Tuple of (title_text, source_field_name)
+            If no valid title found, returns ('', 'none')
+        """
+        # Field priority order (maintain here for future extensions)
+        field_chain = ['title', 'title_detail', 'summary', 'description']
+        
+        for field in field_chain:
+            if field in metadata and metadata[field]:
+                title_val = str(metadata[field]).strip()
+                
+                # Validation: not a URL and minimum length
+                if len(title_val) > 3 and not title_val.startswith('http'):
+                    return (title_val, field)
+        
+        # Fallback: no valid title found
+        logger.warning(
+            f"Could not extract valid RSS title. "
+            f"Metadata keys available: {list(metadata.keys())[:5]}... "
+            f"Will use URL-based classification as fallback."
+        )
+        return ('', 'none')
+    
+    def _classify_rss_with_regex(
+        self, 
+        url: str, 
+        metadata: Dict[str, Any]
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Classify RSS entries using REGEX patterns on title field ONLY.
+        
+        Strategy: REGEX-first approach
+            1. Extract title robustly (with fallback chain)
+            2. Try REGEX patterns (all categories)
+            3. If no REGEX match -> return None (will fallback to URL-based classification)
+            4. LLM classification NOT used for RSS (REGEX only)
+        
+        Args:
+            url: URL to classify
+            metadata: RSS entry metadata (title, summary, etc.)
+            
+        Returns:
+            Classification result dict or None if not classified by REGEX
+        """
+        config = get_config()
+        
+        # Step 1: Extract title robustly (with validation + fallback)
+        title_text, title_source = self._extract_rss_title(metadata)
+        
+        if not title_text:
+            # No valid title found - will fallback to URL-only classification
+            logger.debug(f"Skipping RSS regex classification for {url} (no title)")
+            return None
+        
+        # Step 2: REGEX pattern matching on title ONLY (lowercase for matching)
+        searchable_text = title_text.lower()
+        title_patterns = config.get('rss_classification.title_patterns', {})
+        
+        # Check patterns in priority order: other -> single_grant -> grant_list
+        for pattern in title_patterns.get('other', []):
+            if re.search(pattern, searchable_text, re.IGNORECASE):
+                return {
+                    'url': url,
+                    'category': 'other',
+                    'reason': f'REGEX matched on {title_source} field (other)'
+                }
+        
+        for pattern in title_patterns.get('single_grant', []):
+            if re.search(pattern, searchable_text, re.IGNORECASE):
+                return {
+                    'url': url,
+                    'category': 'single_grant',
+                    'reason': f'REGEX matched on {title_source} field (single_grant)'
+                }
+        
+        for pattern in title_patterns.get('grant_list', []):
+            if re.search(pattern, searchable_text, re.IGNORECASE):
+                return {
+                    'url': url,
+                    'category': 'grant_list',
+                    'reason': f'REGEX matched on {title_source} field (grant_list)'
+                }
+        
+        # No REGEX match found
+        logger.debug(f"No REGEX pattern matched RSS title for {url}")
+        return None
+    
+    def _classify_with_regex(
+        self, 
+        links: List[str],
+        rss_metadata: Optional[Dict[str, Dict[str, Any]]] = None
+    ) -> tuple[List[Dict[str, Any]], List[str]]:
         """
         Classify links using regex patterns.
+        
+        For RSS links with metadata: uses RSS-specific patterns on title/description
+        For standard links: uses URL-based patterns from config
+        
+        Args:
+            links: List of URLs to classify
+            rss_metadata: Optional dict mapping URL -> RSS metadata
         
         Returns:
             Tuple of (classified_results, unclassified_links)
             - classified_results: List of successfully regex-classified results
             - unclassified_links: List of links that didn't match any pattern (to send to LLM)
         """
-        # Define regex patterns for each category
-        # Note: order matters! Single grant patterns are checked first
-        single_grant_patterns = [
-            # Singular forms and specific details pages
+        # Load regex patterns from config (with fallback to defaults)
+        config = get_config()
+        url_patterns = config.get('url_classification.patterns', {})
+        
+        # Default patterns (used if config is missing)
+        default_single_grant = [
             r'\b(bando|grant|funding|detail|submission|application|fellowship)\b',
             r'/details?(/|$|[?#])',
-            r'/grant(/[^/]|$|[?#])',  # /grant/ or /grant with ID
-            r'/call(/[^/]|$|[?#])',  # /call/ (singular with ID, NOT /calls/)
-            r'/bando(/[^/]|$|[?#])',  # /bando/ (Italian singular with ID)
-            r'(/|[?#])(detail|award|opportunity)(/|[?#]|$)',  # specific pages
+            r'/grant(/[^/]|$|[?#])',
+            r'/call(/[^/]|$|[?#])',
+            r'/bando(/[^/]|$|[?#])',
+            r'(/|[?#])(detail|award|opportunity)(/|[?#]|$)',
         ]
-        
-        grant_list_patterns = [
-            # Plural forms indicating lists/collections
+        default_grant_list = [
             r'\b(bandi|grants|fundings|calls|opportunities|list\s+of|search|browse|directory)\b',
-            r'/bandi(/|$|[?#])',  # plural
-            r'/grants?s(/|$|[?#])',  # /grants or /grantss
-            r'/fundings?s(/|$|[?#])',  # /fundings plural
-            r'/calls(/|$|[?#])',  # /calls (plural, without ID)
-            r'/opportunities(/|$|[?#])',  # plural
+            r'/bandi(/|$|[?#])',
+            r'/grants?s(/|$|[?#])',
+            r'/fundings?s(/|$|[?#])',
+            r'/calls(/|$|[?#])',
             r'/search(/|$|[?#])',
             r'/browse(/|$|[?#])',
             r'/directory(/|$|[?#])',
             r'(list|directory|index)\..*$',
-            r'/opportunities(/|$|[?#])',
         ]
-        
-        other_patterns = [
+        default_other = [
             r'\b(about|chi\s+siamo|contatti?|contact|news|blog|faq|frequently\s+asked\s+questions?|help|support|privacy|terms|policy|allegat[oi]|attachments?|annexe?s?|appendi(x|ces)|vincitor[ei]|winners?|servizi[oi]?|services?)\b',
             r'/about(/|$|[?#])',
             r'/contact(/|$|[?#])',
@@ -96,12 +205,41 @@ class LinkClassifier:
             r'linkedin',
         ]
         
+        # Load from config or use defaults
+        single_grant_patterns = url_patterns.get('single_grant', default_single_grant)
+        grant_list_patterns = url_patterns.get('grant_list', default_grant_list)
+        other_patterns = url_patterns.get('other', default_other)
+        
         classified_results = []
         unclassified_links = []
         
         for url in links:
-            url_lower = url.lower()
             classified = False
+            
+            # PRIORITY 1: RSS-specific classification (if metadata available)
+            if rss_metadata and url in rss_metadata:
+                rss_result = self._classify_rss_with_regex(url, rss_metadata[url])
+                if rss_result:
+                    classified_results.append(rss_result)
+                    classified = True
+                    continue
+            
+            # PRIORITY 2: Standard URL-based regex classification
+            url_lower = url.lower()
+            
+            # Check other patterns FIRST
+            for pattern in other_patterns:
+                if re.search(pattern, url_lower, re.IGNORECASE):
+                    classified_results.append({
+                        'url': url,
+                        'category': 'other',
+                        'reason': 'Matched regex pattern for other page'
+                    })
+                    classified = True
+                    break
+            
+            if classified:
+                continue
             
             # Check single_grant patterns
             for pattern in single_grant_patterns:
@@ -127,13 +265,6 @@ class LinkClassifier:
                     })
                     classified = True
                     break
-            
-            if classified:
-                continue
-            
-            # Check other patterns
-            for pattern in other_patterns:
-                if re.search(pattern, url_lower, re.IGNORECASE):
                     classified_results.append({
                         'url': url,
                         'category': 'other',
@@ -153,13 +284,16 @@ class LinkClassifier:
         batch_size: int = 50,
         show_progress: bool = True,
         output_file: Optional[Path] = None,
-        incremental_save: bool = False
+        incremental_save: bool = False,
+        rss_metadata: Optional[Dict[str, Dict[str, Any]]] = None
     ) -> List[Dict[str, Any]]:
         """
         Classify a list of links into categories using regex-first approach.
         
         Process:
         1. First, classify with regex patterns (fast, local)
+           - For RSS links: uses domain rules and title/description patterns
+           - For standard links: uses URL-based patterns
         2. Then, send unclassified links to LLM (accurate, but slower/more expensive)
         
         Categories:
@@ -171,6 +305,7 @@ class LinkClassifier:
             links: List of URL strings to classify
             batch_size: Number of links to classify per API call
             show_progress: Whether to show progress indicator
+            rss_metadata: Optional dict mapping URL -> RSS entry metadata
             
         Returns:
             List of classification results, each with:
@@ -180,9 +315,12 @@ class LinkClassifier:
         """
         logger.info(f"Classifying {len(links)} links")
         
-        # Step 1: Regex classification
+        if rss_metadata:
+            logger.info(f"  - RSS metadata available for {len(rss_metadata)} URLs")
+        
+        # Step 1: Regex classification (RSS-aware if metadata provided)
         logger.info("Step 1: Regex-based pre-filtering")
-        regex_results, unclassified_links = self._classify_with_regex(links)
+        regex_results, unclassified_links = self._classify_with_regex(links, rss_metadata)
         logger.info(f"  - Regex classified: {len(regex_results)} links")
         logger.info(f"  - Remaining for LLM: {len(unclassified_links)} links")
         
@@ -434,7 +572,8 @@ class LinkClassifier:
         keywords_dict: Optional[Dict[str, List[str]]] = None,
         batch_size: int = 50,
         extract_details: bool = False,
-        force_refresh: bool = False
+        force_refresh: bool = False,
+        rss_metadata: Optional[Dict[str, Dict[str, Any]]] = None
     ) -> Dict[str, Any]:
         """
         Load links from a JSON file and classify them incrementally.
@@ -447,6 +586,7 @@ class LinkClassifier:
             batch_size: Number of links per batch
             extract_details: Ignored in classify-only mode (always False)
             force_refresh: If True, ignore existing results and reclassify
+            rss_metadata: Optional dict mapping URL -> RSS entry metadata
             
         Returns:
             Classification results with statistics
@@ -526,7 +666,8 @@ class LinkClassifier:
             batch_size=batch_size,
             show_progress=True,
             output_file=output_file,
-            incremental_save=True
+            incremental_save=True,
+            rss_metadata=rss_metadata
         )
         
         # Calculate statistics
