@@ -6,10 +6,12 @@ paths:
   base_dir: "."
   # Input directory for YAML configuration files
   input_dir: "input"
-  # Output directory for extracted links
+  # Output directory for extracted links from scraping
   output_dir: "intermediate_outputs/all_links"
   # Unified links file (after deduplication)
   unified_links_file: "intermediate_outputs/link_unificati.json"
+  # Classified links file (output of classify command)
+  classified_links_file: "intermediate_outputs/classified_links.json"
 
 # Input Files Configuration (YAML format)
 input_files:
@@ -102,6 +104,102 @@ overlays:
     - ".overlay"
     - ".cookie-banner"
     - ".notification"
+
+# RSS Classification Configuration
+rss_classification:
+  # REGEX-only classification strategy for RSS entries
+  # Strategy: Match patterns on RSS TITLE field ONLY (with fallback chain)
+  #
+  # Title field extraction (in priority order):
+  #   1. "title" field (RSS standard)
+  #   2. "title_detail" field (feedparser structured)
+  #   3. "summary" field (Atom standard)
+  #   4. "description" field (RSS extracted fallback)
+  #
+  # If no valid title found:
+  #   - Log WARNING
+  #   - Return None → fallback to URL-based classification
+  #
+  # Pattern matching:
+  #   - Applied on extracted title ONLY (lowercase)
+  #   - Priority order: single_grant → grant_list → other
+  #   - First match wins
+  #   - If NO regex match: fallback to URL-based classification
+  #
+  # Domain rules: DEPRECATED/DISABLED
+  # These are kept for backward compatibility but NOT used in new logic.
+  # Reason: Domain alone cannot determine if link is a grant (see config comments)
+  domain_rules: {}
+  
+  # REGEX patterns for title-based classification
+  # Patterns are standard Python regex with word boundaries (\b)
+  # Adapted from URL-based rules to their closest title equivalents
+  title_patterns:
+    single_grant:
+      # Singular/grant-specific terminology (maps: bando|grant|funding|submission|application|fellowship|award|opportunity)
+      - '\b(bando|grant|submission|application|fellowship|award|opportunity)\b'
+      # Explicit calls for proposals (singular semantics in titles)
+      - '\b(call for proposals?)\b'
+      # Scholarships/fellowships (Italian/English variants)
+      - '\b(borsa di studio|scholarship|fellowship|assegno di ricerca)\b'
+    grant_list:
+      # Plurals and list/collection indicators (maps: bandi|grants|fundings|calls|opportunities|list of|search|browse|directory)
+      - '\b(bandi|grants|fundings|calls|opportunities)\b'
+      - '\b(list of|elenco|directory|browse|search|index)\b'
+      - '\b(aperte|available|open)\b'
+    other:
+      # Generic/non-grant pages (maps: about|contatti|contact|news|blog|faq|help|support|privacy|terms|policy|allegati|attachments|annex|appendix|vincitori|winners|servizi|services)
+      - '\b(about|chi\s+siamo|contatti?|contact|news|blog|faq|frequently\s+asked\s+questions?|help|support|privacy|terms|policy|allegat[oi]|attachments?|annexe?s?|appendi(?:x|ces)|vincitor[ei]|winners?|servizi(?:o|i)?|services?)\b'
+      # Titles that explicitly reference external networks or file types
+      - '\b(linkedin)\b'
+      - '\b(pdf)\b'
+
+# URL-based Classification Configuration
+# REGEX patterns for URL-based classification (standard links, not RSS)
+# Strategy: Match patterns on URL path and domain (not title)
+# Used as fallback when title-based patterns don't match
+url_classification:
+  patterns:
+    other:
+      # Generic pages (about, contact, news, etc.)
+      - '\b(about|chi\s+siamo|contatti?|contact|news|blog|faq|frequently\s+asked\s+questions?|help|support|privacy|terms|policy|allegat[oi]|attachments?|annexe?s?|appendi(x|ces)|vincitor[ei]|winners?|servizi[oi]?|services?)\b'
+      - '/about(/|$|[?#])'
+      - '/contact(/|$|[?#])'
+      - '/news(/|$|[?#])'
+      - '/blog(/|$|[?#])'
+      - '/help(/|$|[?#])'
+      - '/allegat[oi](/|$|[?#])'
+      - '/(attachment|annex|appendix)(/|$|[?#])'
+      - '\.pdf($|[?#])'
+      - 'linkedin'
+    single_grant:
+      # Singular forms and specific details pages
+      - '\b(bando|grant|detail|submission|application|fellowship|tender|dettagli)\b'
+      - '/details?(/|$|[?#])'
+      - '/grant(/[^/]|$|[?#])'
+      - '/call(/[^/]|$|[?#])'
+      - '/bando(/[^/]|$|[?#])'
+      - '/tender-details(/|$|[?#])'
+      - '/grant-details(/|$|[?#])'
+      - '/dettagli-bando(/|$|[?#])'
+      - '(/|[?#])(detail|award|opportunity)(/|[?#]|$)'
+    grant_list:
+      # Plural forms indicating lists/collections
+      - '\b(bandi|grants|fundings|calls|opportunities|list\s+of|search|browse|directory)\b'
+      - '/bandi(/|$|[?#])'
+      - '/grants?s(/|$|[?#])'
+      - '/fundings?s(/|$|[?#])'
+      - '/calls(/|$|[?#])'
+      - '/search(/|$|[?#])'
+      - '/browse(/|$|[?#])'
+      - '/directory(/|$|[?#])'
+      - '(list|directory|index)\..*$'
+
+# Email Configuration
+email:
+  # Number of days back to filter grants by deadline (only grants with deadline >= today - deadline_filter_days will be included)
+  # Grants with null/missing deadline will always be included
+  deadline_filter_days: 30
 
 # OpenAI Configuration
 openai:

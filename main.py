@@ -11,7 +11,7 @@ from scraper import (
     load_keywords_from_yaml,
     scrape_sites,
 )
-from processors import deduplicate_from_directory, LinkClassifier
+from processors import deduplicate_from_directory, LinkClassifier, DigestBuilder, MailSender
 
 # Setup logger
 logger = get_logger(__name__)
@@ -126,6 +126,16 @@ def cmd_classify(args):
     else:
         output_file = input_file.parent / "classified_links.json"
 
+    # Load RSS metadata if available (from unified links file)
+    rss_metadata = None
+    try:
+        unified_data = load_json(input_file)
+        if unified_data and 'rss_metadata' in unified_data:
+            rss_metadata = unified_data['rss_metadata']
+            logger.info(f"Loaded RSS metadata for {len(rss_metadata)} URLs")
+    except Exception as e:
+        logger.debug(f"Could not load RSS metadata from input file: {e}")
+
     # Classify only (NO extraction)
     try:
         classifier = LinkClassifier(model=args.model)
@@ -135,7 +145,8 @@ def cmd_classify(args):
             keywords_dict=None,
             batch_size=args.batch_size,
             extract_details=False,  # Always False for classify command
-            force_refresh=args.force_refresh
+            force_refresh=args.force_refresh,
+            rss_metadata=rss_metadata
         )
 
         logger.info("=== Classification Complete ===")
@@ -158,7 +169,7 @@ def cmd_extract(args):
     config = get_config()
 
     # Determine input file (classified_links.json from classification step)
-    input_file = Path(args.input) if args.input else config.get_full_path('paths.output_dir') / "classified_links.json"
+    input_file = Path(args.input) if args.input else Path(config.get('paths.classified_links_file', 'intermediate_outputs/classified_links.json'))
 
     # Determine output file
     if args.output:
@@ -166,7 +177,8 @@ def cmd_extract(args):
     else:
         from datetime import datetime
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        output_file = config.get_full_path('paths.output_dir') / f"extracted_grants_{timestamp}.json"
+        # Save to intermediate_outputs (not to all_links subdirectory)
+        output_file = config.get_full_path('paths.classified_links_file').parent / f"extracted_grants_{timestamp}.json"
 
     # Load keywords for keyword matching
     try:
@@ -319,6 +331,116 @@ def cmd_extract(args):
     except Exception as e:
         logger.error(f"Extraction failed: {e}", exc_info=True)
         return 1
+
+
+def cmd_match_keywords(args):
+    """Execute the keyword-to-email matching command."""
+    logger.info("=== Starting Grant-Email Keyword Matching ===")
+    
+    from processors.grant_email_matcher import process_grants_by_keywords
+    from config.settings import Config
+    
+    config = Config()
+    
+    # Determine input file (extracted grants)
+    if args.input:
+        grants_file = args.input
+    else:
+        # Find the latest extracted_grants_*.json file
+        intermediate_dir = Path("intermediate_outputs")
+        grants_files = list(intermediate_dir.glob("extracted_grants_*.json"))
+        if not grants_files:
+            logger.error("No extracted_grants_*.json files found in intermediate_outputs/")
+            return 1
+        grants_file = str(max(grants_files, key=lambda p: p.stat().st_mtime))
+        logger.info(f"Using grants file: {grants_file}")
+    
+    # Keywords file (fixed path from config)
+    input_dir = config.get_full_path('paths.input_dir')
+    keywords_file = str(input_dir / config.get('input_files.keywords_file'))
+    
+    # Output file
+    output_file = args.output if args.output else None
+    
+    # Process
+    try:
+        success = process_grants_by_keywords(grants_file, keywords_file, output_file, config)
+        return 0 if success else 1
+    except Exception as e:
+        logger.error(f"Keyword matching failed: {e}", exc_info=True)
+        return 1
+
+
+def cmd_build_digests(args):
+    """Build HTML/text digests grouped by recipient email."""
+    logger.info("=== Building Email Digests ===")
+
+    builder = DigestBuilder(template_dir=Path(args.template_dir) if args.template_dir else None)
+
+    # Resolve source file
+    if args.input:
+        source_file = Path(args.input)
+    else:
+        try:
+            source_file = builder.find_latest_source()
+            logger.info(f"Using latest source file: {source_file}")
+        except FileNotFoundError as e:
+            logger.error(str(e))
+            return 1
+
+    output_file = Path(args.output) if args.output else None
+
+    try:
+        builder.build_digests(source_file, output_file)
+        logger.info("=== Digest build complete ===")
+        return 0
+    except Exception as e:
+        logger.error(f"Digest build failed: {e}", exc_info=True)
+        return 1
+
+
+def cmd_send_mails(args):
+    """Send email digests to recipients and alert to admin."""
+    logger.info("=== Starting Mail Send ===")
+
+    sender = MailSender(dry_run=args.dry_run)
+
+    # Resolve digest file
+    if args.input:
+        digest_file = Path(args.input)
+    else:
+        try:
+            digest_file = sender.find_latest_digest()
+            logger.info(f"Using latest digest file: {digest_file}")
+        except FileNotFoundError as e:
+            logger.error(str(e))
+            return 1
+
+    # Send digests
+    try:
+        send_summary = sender.send_digests(
+            digest_file,
+            mode=args.mode,
+            test_recipients=None
+        )
+        logger.info(f"Digests sent: {send_summary['sent']}, Failed: {send_summary['failed']}")
+    except Exception as e:
+        logger.error(f"Digest sending failed: {e}", exc_info=True)
+        return 1
+
+    # Send alert summary unless skipped
+    if not args.skip_alert:
+        try:
+            alert = sender.send_alert_summary(digest_file)
+            if alert.get("alert_sent"):
+                logger.info(f"Alert sent to {sender.alert_email}")
+            else:
+                logger.warning(f"Alert failed: {alert.get('alert_error')}")
+        except Exception as e:
+            logger.error(f"Alert sending failed: {e}", exc_info=True)
+
+    logger.info("=== Mail send complete ===")
+    return 0
 
 
 def cmd_pipeline(args):
@@ -507,6 +629,55 @@ Examples:
         help='Ignore cache and re-extract all grants'
     )
     
+    # Match Keywords command
+    parser_match = subparsers.add_parser('match-keywords', help='Match grants to emails based on keywords')
+    parser_match.add_argument(
+        '-i', '--input',
+        help='Input JSON file with extracted grants (default: latest extracted_grants_*.json)'
+    )
+    parser_match.add_argument(
+        '-o', '--output',
+        help='Output JSON file for matched results (default: auto-generated with timestamp)'
+    )
+
+    # Build digests command
+    parser_digests = subparsers.add_parser('build-digests', help='Build email digests (HTML + text) grouped by recipient')
+    parser_digests.add_argument(
+        '-i', '--input',
+        help='Input JSON file grants_by_keywords_emails_*.json (default: latest by timestamp)'
+    )
+    parser_digests.add_argument(
+        '-o', '--output',
+        help='Output JSON file for rendered digests (default: email_digests_<timestamp>.json)'
+    )
+    parser_digests.add_argument(
+        '--template-dir',
+        help='Optional template directory override'
+    )
+    
+    # Send mails command
+    parser_send = subparsers.add_parser('send-mails', help='Send email digests to recipients and alert summary to admin')
+    parser_send.add_argument(
+        '-i', '--input',
+        help='Input JSON file email_digests_*.json (default: latest by timestamp)'
+    )
+    parser_send.add_argument(
+        '--mode',
+        choices=['full', 'test'],
+        default='full',
+        help='full=send all, test=prompt for sample recipients (default: full)'
+    )
+    parser_send.add_argument(
+        '--dry-run',
+        action='store_true',
+        help='Simulate sending without actual SMTP calls'
+    )
+    parser_send.add_argument(
+        '--skip-alert',
+        action='store_true',
+        help='Skip sending alert summary to admin'
+    )
+    
     # Pipeline command
     parser_pipeline = subparsers.add_parser('pipeline', help='Run full pipeline')
     parser_pipeline.add_argument(
@@ -564,6 +735,9 @@ Examples:
         'deduplicate': cmd_deduplicate,
         'classify': cmd_classify,
         'extract': cmd_extract,
+        'match-keywords': cmd_match_keywords,
+        'build-digests': cmd_build_digests,
+        'send-mails': cmd_send_mails,
         'pipeline': cmd_pipeline
     }
     

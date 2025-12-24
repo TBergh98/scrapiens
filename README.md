@@ -192,42 +192,222 @@ logging:
 
 ## CLI Commands
 
-### Full Pipeline
+### Complete Command Reference
+
+#### Full Pipeline (All Steps)
+
+```bash
+python main.py pipeline
+python main.py pipeline --problematic          # Process problematic sites
+python main.py pipeline -m gpt-4o              # Use different model
+python main.py pipeline -v                     # Verbose logging
+```
+
+Runs all steps in sequence: **scrape → deduplicate → classify → extract → match-keywords → build-digests**
+
+---
+
+### Individual Commands
+
+#### 1. Scrape
+
+Extract links from configured websites:
+
+```bash
+python main.py scrape
+python main.py scrape --problematic            # Scrape problematic sites instead
+python main.py scrape -o custom_output/        # Custom output directory
+python main.py scrape --save-json              # Save combined JSON file
+python main.py scrape -v                       # Verbose logging
+```
+
+**Output:** JSON files per site in `intermediate_outputs/all_links/`
+
+---
+
+#### 2. Deduplicate
+
+Remove duplicate links across all sources:
+
+```bash
+python main.py deduplicate
+python main.py deduplicate -i input_dir/       # Custom input directory
+python main.py deduplicate -o output.json      # Custom output file
+python main.py deduplicate -p '*_links.txt'    # Custom file pattern
+```
+
+**Input:** Individual site JSON files  
+**Output:** `intermediate_outputs/link_unificati.json`
+
+---
+
+#### 3. Classify
+
+Categorize links using AI (single_grant, grant_list, other):
+
+```bash
+python main.py classify
+python main.py classify -i links.json          # Custom input file
+python main.py classify -o classified.json     # Custom output file
+python main.py classify -m gpt-4o              # Different OpenAI model
+python main.py classify -b 100                 # Custom batch size
+python main.py classify --force-refresh        # Ignore cache, reclassify
+```
+
+**Input:** `intermediate_outputs/link_unificati.json`  
+**Output:** `intermediate_outputs/classified_links.json`
+
+---
+
+#### 4. Extract
+
+Extract detailed grant information from classified links:
+
+```bash
+python main.py extract
+python main.py extract -i classified.json      # Custom input file
+python main.py extract -o grants.json          # Custom output file
+python main.py extract -m gpt-4o-mini          # Different model
+python main.py extract -b 100                  # Batch size
+python main.py extract --force-refresh         # Ignore cache
+```
+
+**Input:** `intermediate_outputs/classified_links.json`  
+**Output:** `intermediate_outputs/extracted_grants_YYYYMMDD_HHMMSS.json`
+
+---
+
+#### 5. Match Keywords
+
+Match extracted grants to recipients based on keywords:
+
+```bash
+python main.py match-keywords
+python main.py match-keywords -i grants.json   # Custom input file
+python main.py match-keywords -o output.json   # Custom output file
+```
+
+**Input:** Latest `extracted_grants_*.json`  
+**Output:** `intermediate_outputs/grants_by_keywords_emails_YYYYMMDD_HHMMSS.json`
+
+---
+
+#### 6. Build Digests
+
+Generate formatted email digests (HTML + plaintext) grouped by recipient:
+
+```bash
+python main.py build-digests
+python main.py build-digests -i matches.json   # Custom input file
+python main.py build-digests -o digest.json    # Custom output file
+python main.py build-digests --template-dir custom_templates/  # Custom templates
+```
+
+**Features:**
+- Groups matches by recipient email
+- Renders HTML and plaintext versions
+- Highlights deadlines (critical: <15 days, warning: <30 days)
+- Shows matched keywords per grant
+- Includes disclaimer footer
+
+**Input:** Latest `grants_by_keywords_emails_*.json`  
+**Output:** `intermediate_outputs/email_digests_YYYYMMDD_HHMMSS.json`
+
+---
+
+#### 7. Send Mails
+
+Send email digests to recipients and alert summary to admin:
+
+```bash
+python main.py send-mails
+python main.py send-mails --mode test          # Test mode (prompt for sample recipients)
+python main.py send-mails -i digest.json       # Custom input file
+python main.py send-mails --dry-run            # Simulate without sending
+python main.py send-mails --skip-alert         # Skip admin alert email
+```
+
+**Modes:**
+- `full` (default) - Send to all recipients in digest
+- `test` - Interactive prompt to select subset of recipients
+
+**Features:**
+- Sends multipart emails (HTML + plaintext)
+- Tracks failed sends
+- Includes failure details in admin alert
+- Collects pipeline statistics (extraction rate, match rate, send success)
+- Sends summary to `scouting.bandi@izsvenezie.it`
+
+**Credentials:** Set in `.env` file (Mailjet SMTP)
+
+**Alert Includes:**
+- Total grants extracted
+- Extraction success rate
+- Keyword match rate
+- Number of recipients
+- Failed send details with errors
+
+---
+
+### Help & Debug
+
+```bash
+python main.py --help                          # List all commands
+python main.py <command> --help                # Help for specific command
+python main.py scrape -v                       # Verbose logging (any command)
+```
+
+---
+
+### Typical Workflow
+
+```bash
+# 1. Scrape all configured sites
+python main.py scrape
+
+# 2. Clean up duplicates
+python main.py deduplicate
+
+# 3. Classify links with AI
+python main.py classify
+
+# 4. Extract grant details
+python main.py extract
+
+# 5. Match to recipients by keywords
+python main.py match-keywords
+
+# 6. Build formatted digests
+python main.py build-digests
+
+# 7. Send emails to researchers + admin alert
+python main.py send-mails
+```
+
+Or in one command:
 
 ```bash
 python main.py pipeline
 ```
 
-Runs scrape → deduplicate → classify in sequence.
+---
 
-### Individual Steps
-
-**Scrape:**
-```bash
-python main.py scrape
-python main.py scrape -o custom_output/  # Custom output dir
-```
-
-**Deduplicate:**
-```bash
-python main.py deduplicate
-python main.py deduplicate -i links_dir/ -o dedup.json
-```
-
-**Classify:**
-```bash
-python main.py classify
-python main.py classify -m gpt-4o  # Different model
-python main.py classify -i links.json -o classified.json
-```
-
-### CLI Help
+### Quick Commands
 
 ```bash
-python main.py --help
-python main.py scrape --help
-python main.py classify --help
+# Test mode: send sample emails to yourself
+python main.py send-mails --mode test --dry-run
+
+# Rebuild digests from existing matches
+python main.py build-digests
+
+# Resend last batch of digests
+python main.py send-mails
 ```
+
+---
+
+### Full Pipeline
 
 ## Programmatic Usage
 
@@ -340,9 +520,17 @@ File: `link_unificati.json`
 
 ```json
 {
-  "links_with_keywords": {
-    "https://example.com/grant/2024": ["ricerca", "innovazione"],
-    "https://example.org/call/2025": ["ricerca"]
+  "links": [
+    "https://example.com/grant/2024",
+    "https://example.org/call/2025"
+  ],
+  "rss_metadata": {
+    "https://example.com/grant/2024": {
+      "title": "Research Grant 2024",
+      "summary": "Funding opportunity for...",
+      "published": "2024-12-15",
+      "tags": [{"term": "research"}]
+    }
   },
   "stats": {
     "total_sites": 50,
@@ -385,7 +573,7 @@ File: `link_unificati_classified.json`
 
 ## RSS Feed Integration 🆕
 
-Scrapiens supports RSS/Atom feed extraction for **30-50x faster scraping**.
+Scrapiens supports RSS/Atom feed extraction for **30-50x faster scraping** with **enhanced metadata extraction and intelligent classification**.
 
 ### Quick Setup
 
@@ -404,6 +592,62 @@ sites:
 - ⚡ **30-50x faster** - No browser overhead
 - 🔋 **90% less resource** - No Selenium needed
 - ✅ **More reliable** - Standardized XML format
+- 🎯 **Smarter classification** - Uses RSS titles and descriptions
+- 📊 **Full metadata** - Extracts all available RSS fields dynamically
+
+### RSS Enhanced Pipeline
+
+When `rss_url` is configured, Scrapiens follows a specialized pipeline:
+
+1. **Extraction**: All RSS entry fields (title, description, date, etc.) are extracted dynamically
+2. **Storage**: RSS metadata saved separately in `intermediate_outputs/rss_feeds/{site}_rss.json`
+3. **Deduplication**: RSS metadata preserved during link deduplication
+4. **Classification**: 
+   - **Priority 1**: Domain-based rules (e.g., `ec.europa.eu` → single_grant)
+   - **Priority 2**: RSS title/description pattern matching
+   - **Priority 3**: Standard URL regex patterns
+   - **Fallback**: LLM classification (GPT-4o-mini)
+
+### RSS Classification Rules
+
+Configure domain-specific rules in `config/config.yaml`:
+
+```yaml
+rss_classification:
+  # Domain-based rules (highest priority)
+  domain_rules:
+    "ec.europa.eu/info/funding-tenders": "single_grant"
+    "masaf.gov.it": "single_grant"
+  
+  # Title/description regex patterns
+  title_patterns:
+    single_grant:
+      - '\b(call for proposals?|bando|grant|funding opportunity)\b'
+      - '\b(fellowships?|scholarship)\b'
+    grant_list:
+      - '\b(bandi|grants|calls|opportunities)\b'
+    other:
+      - '\b(news|evento|event|conference)\b'
+```
+
+### RSS Output Format
+
+RSS metadata file (`rss_feeds/{site}_rss.json`):
+
+```json
+[
+  {
+    "url": "https://example.com/call/2024",
+    "title": "Call for Research Proposals 2024",
+    "summary": "Applications are invited for...",
+    "published": "Wed, 15 Dec 2024 10:00:00 GMT",
+    "author": "Research Office",
+    "tags": [{"term": "research"}],
+    "id": "unique-entry-id"
+    // ... all other available RSS fields
+  }
+]
+```
 
 ### Finding RSS Feeds
 

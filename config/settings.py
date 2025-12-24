@@ -129,6 +129,29 @@ class Config:
         return api_key
     
     @property
+    def smtp_config(self) -> Dict[str, Any]:
+        """Get SMTP configuration for mail sending."""
+        return {
+            'server': os.getenv('MAILJET_SMTP_SERVER', ''),
+            'port': int(os.getenv('MAILJET_SMTP_PORT', 25)),
+            'login_user': os.getenv('MAILJET_LOGIN_USER', ''),
+            'login_pw': os.getenv('MAILJET_LOGIN_PW', ''),
+            'use_tls': str(os.getenv('MAILJET_USE_TLS', 'true')).lower() in ['1', 'true', 'yes', 'on'],
+            'from_addr': os.getenv('MAIL_FROM', os.getenv('ALERT_EMAIL', '')),
+            'reply_to': os.getenv('MAIL_REPLY_TO', ''),
+        }
+    
+    @property
+    def alert_email(self) -> str:
+        """Get the alert/summary email address."""
+        email = os.getenv('ALERT_EMAIL', '')
+        if not email:
+            raise ValueError(
+                "ALERT_EMAIL not found. Please set it in .env file or as environment variable."
+            )
+        return email
+    
+    @property
     def all_config(self) -> Dict[str, Any]:
         """Get the entire configuration dictionary."""
         return self._config.copy()
