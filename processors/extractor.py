@@ -301,9 +301,41 @@ class GrantExtractor:
         
         return result
     
+    def _is_ec_europa_special_url(self, url: str) -> bool:
+        """
+        Helper function to identify EC Europa special URLs that require aggressive extraction.
+        
+        Identifies URLs from ec.europa.eu that contain 'tender-details' or 'topic-details'
+        path segments, which require special handling due to their complex JavaScript-heavy
+        page structure.
+        
+        Args:
+            url: The URL to check
+            
+        Returns:
+            True if URL is from ec.europa.eu with tender-details or topic-details, False otherwise
+        """
+        if not url:
+            return False
+        
+        # Check if URL is from ec.europa.eu domain
+        is_ec_europa = 'ec.europa.eu' in url.lower()
+        
+        # Check for special path segments that require aggressive extraction
+        has_special_path = (
+            'tender-details' in url.lower() or 
+            'topic-details' in url.lower()
+        )
+        
+        return is_ec_europa and has_special_path
+
     def extract_grant_details(self, url: str, driver: Optional[webdriver.Chrome] = None) -> Dict[str, Any]:
         """
         Extract grant details from a single URL.
+        
+        Uses adaptive extraction strategy: for ec.europa.eu tender/topic detail pages,
+        applies aggressive extraction with longer waits and additional scrolling to ensure
+        all JavaScript-rendered content is loaded before GPT extraction.
         
         Args:
             url: URL to extract from
@@ -318,23 +350,67 @@ class GrantExtractor:
             driver = self._create_driver(url)
         
         clicked_elements = 0
+        is_special_ec_url = self._is_ec_europa_special_url(url)
         
         try:
             logger.info(f"Extracting grant details from: {url}")
+            
+            # Determine if this requires aggressive extraction strategy
+            if is_special_ec_url:
+                logger.info(f"✓ Using aggressive extraction strategy for EC Europa special URL")
             
             # Load page with Selenium
             start_time = time.time()
             driver.get(url)
             
-            # Wait for page to load
-            time.sleep(2)
+            # Adaptive initial wait time based on URL type
+            # EC Europa special URLs need longer initial wait to load JavaScript content
+            if is_special_ec_url:
+                logger.debug("Waiting 4s (aggressive strategy) for page initialization")
+                time.sleep(4)  # Increased from 2s to 4s for ec.europa.eu tender/topic pages
+            else:
+                time.sleep(2)  # Standard wait for other pages
             
             # Click expandable elements (tabs, "show more", accordions, etc.)
             # This reveals hidden content before extraction
-            clicked_elements = click_tabs_and_expandable_elements(driver)
+            if is_special_ec_url:
+                # For EC Europa pages, use aggressive click strategy with longer delays
+                logger.debug("Using aggressive click delays (0.5s) for expandable elements")
+                clicked_elements = click_tabs_and_expandable_elements(driver)
+                # Note: click_delay is controlled via config, but we need to apply additional scrolling
+                
+                # After clicking expandable elements, perform aggressive scrolling
+                # This ensures all lazy-loaded content is rendered
+                logger.debug("Performing aggressive scrolling (5 iterations) for ec.europa.eu page")
+                scroll_start = time.time()
+                last_height = driver.execute_script("return document.body.scrollHeight")
+                
+                for i in range(5):
+                    # Scroll to bottom
+                    driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+                    time.sleep(0.5)  # Use 0.5s scroll delay for aggressive extraction
+                    
+                    # Check if height changed
+                    new_height = driver.execute_script("return document.body.scrollHeight")
+                    if new_height == last_height:
+                        logger.debug(f"  Height stabilized after {i + 1} aggressive scrolls")
+                        break
+                    last_height = new_height
+                
+                scroll_elapsed = time.time() - scroll_start
+                logger.debug(f"Aggressive scrolling completed in {scroll_elapsed:.1f}s")
+            else:
+                # Standard extraction for other pages
+                clicked_elements = click_tabs_and_expandable_elements(driver)
             
             # Get HTML content after expansion
             html_content = driver.page_source
+            
+            # For EC Europa pages, add an extra sleep before extraction to ensure all
+            # JavaScript-rendered content is fully loaded
+            if is_special_ec_url:
+                logger.debug("Adding 1s extra wait before GPT extraction (aggressive strategy)")
+                time.sleep(1)
             
             load_time = time.time() - start_time
             logger.debug(f"Page loaded in {load_time:.2f}s, HTML length: {len(html_content)}")
@@ -354,18 +430,36 @@ class GrantExtractor:
                 raise
             
             if is_grant_value is False:
-                result = {
-                    'url': url,
-                    'title': None,
-                    'organization': None,
-                    'abstract': None,
-                    'deadline': None,
-                    'funding_amount': None,
-                    'extraction_date': datetime.now().isoformat(),
-                    'extraction_success': False,
-                    'error': f"Not a grant page: {extracted_data.get('invalid_reason', 'Unknown')}",
-                    'is_grant': False
-                }
+                # Special handling for EC Europa pages: ignore is_grant=false and use extracted data anyway
+                if is_special_ec_url:
+                    logger.info(f"⚠ GPT returned is_grant=false for EC Europa URL, but using data anyway (aggressive strategy override)")
+                    result = {
+                        'url': url,
+                        'title': extracted_data.get('title'),
+                        'organization': extracted_data.get('organization'),
+                        'abstract': extracted_data.get('abstract'),
+                        'deadline': extracted_data.get('deadline'),
+                        'funding_amount': extracted_data.get('funding_amount'),
+                        'extraction_date': datetime.now().isoformat(),
+                        'extraction_success': True,  # Treat as success for EC URLs despite is_grant=false
+                        'error': None,
+                        'is_grant': True,  # Override GPT's is_grant result
+                        'note': 'Data extracted using aggressive strategy for EC Europa URL despite GPT is_grant=false'
+                    }
+                else:
+                    # Standard handling for non-EC URLs
+                    result = {
+                        'url': url,
+                        'title': None,
+                        'organization': None,
+                        'abstract': None,
+                        'deadline': None,
+                        'funding_amount': None,
+                        'extraction_date': datetime.now().isoformat(),
+                        'extraction_success': False,
+                        'error': f"Not a grant page: {extracted_data.get('invalid_reason', 'Unknown')}",
+                        'is_grant': False
+                    }
             else:
                 # Add metadata for successful grant extraction
                 result = {
