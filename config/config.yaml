@@ -280,7 +280,37 @@ extractor:
     }
     ```
     
-    ## Field Extraction Rules
+    ## HTML Structure Guidance for EC Europa
+    
+    For EC Europa pages (topic-details and tender-details), the key content is organized in eUI card components.
+    
+    **CALL PAGES (topic-details):**
+    The preprocessed HTML contains 3 main cards:
+    1. **General information card** - Contains metadata:
+       - Look for `<div class="eui-u-font-bold">` labels followed by values
+       - Key labels: Programme, Call, Type of action, Deadline date, Opening date
+    
+    2. **Topic description card** - Contains main content:
+       - Title in `<eui-card-header-title>Topic description</eui-card-header-title>`
+       - Content in `<div class="showMore--three-lines">` or `<eui-card-content>`
+       - Contains Expected Outcome, Scope sections with bullet points
+    
+    3. **Topic conditions and documents card** - Contains administrative info:
+       - General conditions, eligibility, evaluation criteria
+       - Links to documents and forms
+    
+    **TENDER PAGES (tender-details):**
+    The preprocessed HTML contains:
+    1. **General information card** - Contains all metadata:
+       - Procedure identifier, Description (main content), Time limit for receipt of tenders
+       - Procedure type, Contract type, TED publication date
+       - Estimated total value and budget information
+    
+    Each card follows structure:
+    - `<eui-card><eui-card-header>...<eui-card-header-title>SECTION_NAME</eui-card-header-title>...</eui-card-header>`
+    - `<eui-card-content>...ACTUAL_CONTENT...</eui-card-content></eui-card>`
+    
+    Field Extraction Rules
     
     **title**: Grant/call title from HTML
     
@@ -290,6 +320,10 @@ extractor:
     - ≤500 chars: Copy EXACTLY as appears in HTML (preserve all original wording)
     - >500 chars: Intelligent summary (400-500 chars) removing redundancy while preserving domain-specific keywords and key concepts
     - Purpose: Used for keyword matching - maintain technical terms
+    - **EC Europa special handling**: 
+      * For URLs containing 'topic-details': Extract from section titled "Topic description" (look for <eui-card-header-title>Topic description</eui-card-header-title> or similar heading)
+      * For URLs containing 'tender-details': Extract from section labeled "Description" (bold label followed by content)
+      * Preserve all paragraphs under Expected Outcome, Scope, or main description sections
     
     **keywords**: Extract ONLY from explicit keyword/tag sections ("keywords", "key terms", "tags", "subject areas", "topics"). Format as comma/semicolon-separated string. Return null if no dedicated keyword section exists.
     
@@ -304,6 +338,11 @@ extractor:
     |-------|---------|---------|-------|
     | opening_date | "opening", "opens", "from", "starts" | "apertura", "a partire da" | - |
     | deadline | "deadline", "closes on", "closed on", "expired on" | "scadenza", "chiude il", "chiuso il", "scaduto il", "termine", "data limite" | - |
+    
+    **EC Europa deadline extraction**:
+    - For URLs with 'topic-details': Look for bold label "Deadline date" followed by date value
+    - For URLs with 'tender-details': Look for "Time limit for receipt of tenders" followed by date value
+    - These labels appear in structured sections with class="eui-u-font-bold"
     
     **funding_amount**: Extract funding/budget information (e.g., "€500,000", "up to $1M"). Look for: "importo", "finanziamento", "budget", "funding", "amount". Return null if not found.
     

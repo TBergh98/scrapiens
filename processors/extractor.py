@@ -20,20 +20,26 @@ from processors.site_profiles import SiteProfileManager
 logger = get_logger(__name__)
 
 
-def preprocess_ec_europa_html(html_content: str, url: str) -> Optional[Dict[str, str]]:
+def preprocess_ec_europa_html(html_content: str, url: str) -> Optional[str]:
     """
-    Preprocess EC Europa HTML to extract key fields directly from DOM.
+    Preprocess EC Europa HTML to extract only relevant cards/sections, removing noise.
+    
+    Returns clean HTML containing only the 3 main cards (for CALL) or sections (for TENDER),
+    suitable for GPT extraction. Reduces HTML size from ~15KB to ~4-5KB.
     
     This function handles two templates:
-    - CALL template (topic-details): Uses "Topic description" and "Deadline date"
-    - TENDER template (tender-details): Uses "Description" and "Time limit for receipt of tenders"
+    - CALL template (topic-details): Extracts 3 cards:
+      * General information card
+      * Topic description card  
+      * Topic conditions and documents card
+    - TENDER template (tender-details): Extracts General information card
     
     Args:
         html_content: Raw HTML from the page
         url: URL of the page (for template detection)
         
     Returns:
-        Dict with extracted fields or None if preprocessing fails
+        Cleaned HTML string with only relevant cards, or None if preprocessing fails
     """
     try:
         from bs4 import BeautifulSoup
@@ -45,89 +51,50 @@ def preprocess_ec_europa_html(html_content: str, url: str) -> Optional[Dict[str,
         is_call_template = 'topic-details' in url.lower()
         is_tender_template = 'tender-details' in url.lower()
         
-        extracted = {}
+        cards_html = []
         
-        # === EXTRACT ABSTRACT ===
         if is_call_template:
-            # CALL template: Look for "Topic description" card
-            topic_header = soup.find('eui-card-header-title', string='Topic description')
-            if topic_header:
-                card = topic_header.find_parent('eui-card')
+            # ===== CALL TEMPLATE: Extract 3 main cards =====
+            card_titles = [
+                'General information',
+                'Topic description',
+                'Topic conditions and documents'
+            ]
+            
+            for title in card_titles:
+                header = soup.find('eui-card-header-title', string=title)
+                if header:
+                    card = header.find_parent('eui-card')
+                    if card:
+                        cards_html.append(str(card))
+                        logger.debug(f"  ✓ Extracted {title} card")
+                    else:
+                        logger.debug(f"  ⚠ Could not find parent card for {title}")
+                else:
+                    logger.debug(f"  ⚠ Could not find header for {title}")
+        
+        elif is_tender_template:
+            # ===== TENDER TEMPLATE: Extract General information card =====
+            header = soup.find('eui-card-header-title', string='General information')
+            if header:
+                card = header.find_parent('eui-card')
                 if card:
-                    content_div = card.find('div', class_='showMore--three-lines')
-                    if content_div:
-                        # Extract all text, preserving structure
-                        abstract_parts = []
-                        for elem in content_div.find_all(['span', 'p', 'ul', 'li']):
-                            text = elem.get_text(strip=True)
-                            if text and len(text) > 10:  # Skip empty or very short elements
-                                abstract_parts.append(text)
-                        
-                        extracted['abstract'] = ' '.join(abstract_parts)
-                        logger.info(f"✓ Extracted CALL abstract ({len(extracted['abstract'])} chars)")
+                    cards_html.append(str(card))
+                    logger.debug(f"  ✓ Extracted General information card")
+                else:
+                    logger.warning("⚠ Could not find parent card for General information")
+            else:
+                logger.warning("⚠ Could not find General information card header")
         
-        elif is_tender_template:
-            # TENDER template: Look for "Description" field
-            desc_label = soup.find('div', class_='eui-u-font-bold', string=lambda x: x and 'Description' in x)
-            if desc_label:
-                desc_content = desc_label.find_next_sibling('div')
-                if desc_content:
-                    extracted['abstract'] = desc_content.get_text(strip=True)
-                    logger.info(f"✓ Extracted TENDER abstract ({len(extracted['abstract'])} chars)")
-        
-        # === EXTRACT DEADLINE ===
-        if is_call_template:
-            # CALL template: "Deadline date"
-            deadline_label = soup.find('div', class_='eui-u-font-bold', string=lambda x: x and 'Deadline date' in x)
-            if deadline_label:
-                deadline_value = deadline_label.find_next_sibling('div')
-                if deadline_value:
-                    extracted['deadline'] = deadline_value.get_text(strip=True)
-                    logger.info(f"✓ Extracted CALL deadline: {extracted['deadline']}")
-        
-        elif is_tender_template:
-            # TENDER template: "Time limit for receipt of tenders"
-            deadline_label = soup.find('div', class_='eui-u-font-bold', string=lambda x: x and 'Time limit' in x)
-            if deadline_label:
-                deadline_value = deadline_label.find_next_sibling('div')
-                if deadline_value:
-                    extracted['deadline'] = deadline_value.get_text(strip=True)
-                    logger.info(f"✓ Extracted TENDER deadline: {extracted['deadline']}")
-        
-        # === EXTRACT TITLE ===
-        # Look for page title
-        title_elem = soup.find('div', class_='eui-common-header__label-text')
-        if title_elem:
-            extracted['title'] = title_elem.get_text(strip=True)
-            logger.info(f"✓ Extracted title: {extracted['title'][:50]}...")
-        
-        # === EXTRACT ORGANIZATION ===
-        # Look for "Programme" field
-        prog_label = soup.find('div', class_='eui-u-font-bold', string=lambda x: x and 'Programme' in x)
-        if prog_label:
-            prog_value = prog_label.find_next_sibling('div')
-            if prog_value:
-                extracted['organization'] = prog_value.get_text(strip=True)
-                logger.info(f"✓ Extracted organization: {extracted['organization']}")
-        
-        # === EXTRACT FUNDING AMOUNT ===
-        # Look for budget-related fields
-        for label_text in ['Estimated total value', 'Total budget', 'Budget']:
-            budget_label = soup.find('div', class_='eui-u-font-bold', string=lambda x: x and label_text in x)
-            if budget_label:
-                budget_value = budget_label.find_next_sibling('div')
-                if budget_value:
-                    extracted['funding_amount'] = budget_value.get_text(strip=True)
-                    logger.info(f"✓ Extracted funding: {extracted['funding_amount']}")
-                    break
-        
-        # Check if we extracted anything useful
-        if not extracted.get('abstract') and not extracted.get('deadline'):
-            logger.warning("⚠ EC Europa preprocessing found no key fields")
+        if not cards_html:
+            logger.warning("⚠ EC Europa preprocessing: No relevant cards found")
             return None
         
-        logger.info(f"✅ EC Europa preprocessing successful: {len(extracted)} fields extracted")
-        return extracted
+        # Combine all cards into a single HTML document
+        preprocessed_html = '<div>' + ''.join(cards_html) + '</div>'
+        
+        logger.info(f"✅ EC Europa preprocessing successful: {len(preprocessed_html)} chars (reduced from {len(html_content)} chars)")
+        return preprocessed_html
         
     except Exception as e:
         logger.error(f"❌ EC Europa preprocessing failed: {e}")
@@ -529,29 +496,20 @@ class GrantExtractor:
             load_time = time.time() - start_time
             logger.debug(f"Page loaded in {load_time:.2f}s, HTML length: {len(html_content)}")
             
-            # === EC EUROPA PREPROCESSING ===
-            preprocessed_data = None
+            # Apply preprocessing for EC Europa pages to reduce noise and improve accuracy
+            original_html_size = len(html_content)
             if is_special_ec_url:
-                preprocessed_data = preprocess_ec_europa_html(html_content, url)
+                preprocessed = preprocess_ec_europa_html(html_content, url)
+                if preprocessed:
+                    html_content = preprocessed
+                    reduction_pct = (1 - len(html_content)/original_html_size) * 100
+                    logger.info(f"✓ Preprocessing: {len(html_content)} chars ({reduction_pct:.1f}% reduction)")
+                else:
+                    logger.debug(f"⚠ Preprocessing returned None, using full HTML ({original_html_size} chars)")
             
             # Extract with GPT
             extraction_start = time.time()
-            
-            if preprocessed_data:
-                # Use preprocessed data, skip GPT for basic fields
-                logger.info("Using preprocessed EC Europa data")
-                extracted_data = {
-                    'is_grant': True,
-                    'title': preprocessed_data.get('title'),
-                    'organization': preprocessed_data.get('organization'),
-                    'abstract': preprocessed_data.get('abstract'),
-                    'deadline': preprocessed_data.get('deadline'),
-                    'funding_amount': preprocessed_data.get('funding_amount'),
-                    'keywords': None  # Not extracted by preprocessing
-                }
-            else:
-                # Standard GPT extraction
-                extracted_data = self._extract_with_gpt(html_content, url)
+            extracted_data = self._extract_with_gpt(html_content, url)
             extraction_time = time.time() - extraction_start
             
             logger.info(f"Extraction successful for {url} (took {extraction_time:.2f}s)")
