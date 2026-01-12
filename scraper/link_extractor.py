@@ -111,9 +111,27 @@ def scrape_site(driver: webdriver.Chrome, site_config: Dict) -> Set[str]:
     
     name = site_config['name']
     url = site_config['url']
-    rss_url = site_config.get('rss_url')  # NEW: Check for RSS
-    
-    # NEW: RSS Path (No Selenium/HTTP needed)
+    rss_url = site_config.get('rss_url')
+
+    # 1. EC.EUROPA API PATH (no Selenium/HTTP)
+    if name in ("ec_calls_for_proposals", "ec_calls_for_tenders"):
+        logger.info(f"🌐 Using EC Europa API for '{name}' ({url})")
+        try:
+            from scraper.ec_europa_api import fetch_tenders
+            # cft_id is not directly in config, so extract from url if present, else use wildcard
+            # For now, fetch all tenders (wildcard)
+            tenders = fetch_tenders("*")
+            links = set()
+            for t in tenders:
+                if t.url:
+                    links.add(t.url)
+            logger.info(f"EC Europa API: extracted {len(links)} links for '{name}'")
+            return links
+        except Exception as e:
+            logger.error(f"EC Europa API extraction failed for '{name}': {e}")
+            # Fall through to standard scraping if API fails
+
+    # 2. RSS Path (No Selenium/HTTP needed)
     if rss_url:
         logger.info(f"🔔 Site '{name}' has RSS configured - using RSS extraction")
         try:

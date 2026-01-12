@@ -5,6 +5,7 @@ from .keywords_reader import load_keywords_from_yaml, create_keyword_to_recipien
 from .selenium_utils import accept_cookies, hide_overlays, scroll_page_for_lazy_content
 from .pagination import handle_pagination, click_next_button, detect_page_change
 from .link_extractor import scrape_sites, scrape_site, create_webdriver, extract_links_from_page
+from .ec_europa_api import fetch_tenders, ECEuropaTender
 from .rss_extractor import RssExtractor
 
 __all__ = [
@@ -24,6 +25,8 @@ __all__ = [
     'scrape_site',
     'create_webdriver',
     'extract_links_from_page',
-    'RssExtractor'
+    'RssExtractor',
+    'fetch_tenders',
+    'ECEuropaTender'
 ]
 

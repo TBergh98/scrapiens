@@ -34,7 +34,7 @@
   <div class="container">
     <div class="header">
       <h1>Ciao {{ display_name }},</h1>
-      <div>Oggi Scrapiens ha rilevato {{ total_grants }} bandi compatibili con le tue keywords: {{ keywords|join(', ') if keywords else 'n.d.' }}.</div>
+      <div>Oggi il sistema ha rilevato {{ total_grants }} bandi compatibili con le tue keywords: {{ keywords|join(', ') if keywords else 'n.d.' }}.</div>
     </div>
 
     <div class="summary">
@@ -68,6 +68,23 @@
 
     <div class="footer">
       Attenzione: questo digest è generato automaticamente. Verifica sempre le informazioni critiche (es. scadenze) e segnala eventuali problemi.
+    </div>
+
+    <div class="footer" style="margin-top: 8px;">
+      <strong>Known Issues:</strong>
+      <ul style="margin: 6px 0 0 18px; padding: 0; font-size: 12px; color: #555555;">
+        <li>Non vi sono bandi estratti dal sito ec.europa poiché le pagine vengono caricate dinamicamente con JavaScript; il problema è noto e si prevede una soluzione nei prossimi mesi.</li>
+        <li>Alcune deadline possono essere imprecise o assenti.</li>
+      </ul>
+    </div>
+
+    <div class="footer" style="margin-top: 8px;">
+      <strong>Considerazioni:</strong>
+      <ul style="margin: 6px 0 0 18px; padding: 0; font-size: 12px; color: #555555;">
+        <li>Nei prossimi avvisi non verranno inviati i bandi già presenti in questa mail.</li>
+        <li>Segnalare imprecisioni (es. parole chiave dichiarate ma non trovate, deadline errate, mancata corrispondenza tra mail del ricevente e parole chiave) alla mail mittente.</li>
+        <li>Segnalare anche la mancanza di bandi che si sono già visti manualmente ma non sono presenti in questa mail.</li>
+      </ul>
     </div>
   </div>
 </body>
