@@ -11,3 +11,4 @@ Oggi il sistema ha rilevato {{ total_grants }} bandi compatibili con le tue keyw
 {% endif %}
 
 {% endfor %}Nota: digest generato automaticamente. Verifica le scadenze e segnala eventuali problemi.
+Attenzione: se il sito modifica l’URL di un bando già segnalato, il sistema potrebbe riproporlo come nuovo.

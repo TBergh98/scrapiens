@@ -1,7 +1,7 @@
 """Link deduplication and aggregation module."""
 
 from pathlib import Path
-from typing import Any, Dict, List, Set
+from typing import Any, Dict, List, Set, Optional
 from utils.logger import get_logger
 from utils.file_utils import save_json, load_json
 from config.settings import get_config
@@ -144,6 +144,16 @@ def deduplicate_from_directory(
         Deduplication results dictionary with RSS metadata
     """
     logger.info(f"Loading links from directory: {input_dir}")
+    
+    # Check if seen URLs history exists and report stats
+    try:
+        from utils.seen_urls_manager import SeenUrlsManager
+        seen_manager = SeenUrlsManager()
+        stats = seen_manager.get_stats()
+        if stats['total_seen'] > 0:
+            logger.info(f"📚 Historical database: {stats['total_seen']} URLs tracked across all previous runs")
+    except Exception as e:
+        logger.debug(f"Could not load seen URLs stats: {e}")
     
     # Load all link files with keywords
     sites_with_keywords = aggregate_links_with_keywords(input_dir, file_pattern)

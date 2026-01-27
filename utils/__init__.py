@@ -10,6 +10,7 @@ from .file_utils import (
     ensure_directory
 )
 from .cache import CacheManager, get_cache_manager
+from .seen_urls_manager import SeenUrlsManager
 
 __all__ = [
     'setup_logger',
@@ -21,5 +22,6 @@ __all__ = [
     'aggregate_link_files',
     'ensure_directory',
     'CacheManager',
-    'get_cache_manager'
+    'get_cache_manager',
+    'SeenUrlsManager'
 ]

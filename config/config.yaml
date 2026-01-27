@@ -27,6 +27,9 @@ paths:
   site_profiles_file: "intermediate_outputs/04_extract/site_profiles.json"
   grants_cache_file: "intermediate_outputs/04_extract/grants_cache.json"
   
+  # Cross-run deduplication
+  seen_urls_file: "intermediate_outputs/seen_urls.json"
+  
   # Stage 5: Keyword matching outputs
   output_match_keywords_dir: "intermediate_outputs/05_match_keywords"
   
