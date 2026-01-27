@@ -1,22 +1,16 @@
 import httpx
 import time
 import logging
+import uuid
 from typing import List, Dict, Any, Optional
 
 logger = logging.getLogger(__name__)
 
-API_URL = "https://api.tech.ec.europa.eu/search-api/prod/rest/search?apiKey=SEDIA&text=*&pageSize={page_size}&pageNumber={page_number}"
-BOUNDARY = "----WebKitFormBoundary0Rz8rw1vzPzZscZq"
+API_URL = "https://api.tech.ec.europa.eu/search-api/prod/rest/search"
 HEADERS = {
     "Accept": "application/json, text/plain, */*",
-    "Accept-Language": "en-US,en;q=0.9",
-    "Cache-Control": "No-Cache",
-    "Connection": "keep-alive",
-    "Content-Type": f"multipart/form-data; boundary={BOUNDARY}",
-    "Origin": "https://ec.europa.eu",
-    "Referer": "https://ec.europa.eu/",
+    "Content-Type": "application/json",
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0",
-    "X-Requested-With": "XMLHttpRequest",
 }
 
 class ECEuropaTender:
@@ -36,51 +30,60 @@ class ECEuropaTender:
             "raw": self.raw,
         }
 
-def build_multipart_payload(cft_id: str, languages: List[str] = ["en"]):
-    # This function builds the multipart/form-data body as in the cURL
-    # Build the JSON string for the query part (do not use Python dicts here)
+
+def build_multipart_payload(text="*", page_size=50, page_number=1, languages=["en"]):
+    boundary = "----WebKitFormBoundary" + uuid.uuid4().hex
     query_json = (
-        '{"bool":{"must":[{"terms":{"cftId":["' + cft_id + '"]}}]}}'
+        '{"bool":{"must":[]}}' if text == "*" else
+        '{"bool":{"must":[{"query_string":{"query":"' + text + '"}}]}}'
     )
     languages_json = str(languages).replace("'", '"')
     parts = [
-        f"--{BOUNDARY}",
+        f"--{boundary}",
         'Content-Disposition: form-data; name="query"; filename="blob"',
         'Content-Type: application/json',
         '',
         query_json,
-        f"--{BOUNDARY}",
+        f"--{boundary}",
         'Content-Disposition: form-data; name="languages"; filename="blob"',
         'Content-Type: application/json',
         '',
         languages_json,
-        f"--{BOUNDARY}--",
+        f"--{boundary}--",
         ''
     ]
-    return "\r\n".join(parts)
+    return "\r\n".join(parts), boundary
 
 def fetch_tenders(
-    cft_id: str,
+    text: str = "*",
     page_size: int = 50,
     max_pages: int = 10,
-    languages: List[str] = ["en"],
     max_retries: int = 3,
     backoff_factor: float = 1.5,
-) -> List[ECEuropaTender]:
-    results = []
+) -> list:
+    """
+    Fetch tenders from the EU API and return the full raw JSON response for each page.
+    DO NOT parse or filter the JSON; pass it as-is to downstream logic.
+    """
+    all_responses = []
     for page in range(1, max_pages + 1):
-        url = API_URL.format(page_size=page_size, page_number=page)
-        payload = build_multipart_payload(cft_id, languages)
+        body, boundary = build_multipart_payload(text=text, page_size=page_size, page_number=page)
+        headers = HEADERS.copy()
+        headers["Content-Type"] = f"multipart/form-data; boundary={boundary}"
+        params = {
+            "apiKey": "SEDIA",
+            "text": text,
+            "pageSize": page_size,
+            "pageNumber": page
+        }
         for attempt in range(max_retries):
             try:
-                resp = httpx.post(url, headers=HEADERS, content=payload, timeout=30)
+                resp = httpx.post(API_URL, headers=headers, params=params, content=body.encode("utf-8"), timeout=30)
                 resp.raise_for_status()
-                data = resp.json()
-                tenders = parse_tenders(data)
-                results.extend(tenders)
-                logger.info(f"Fetched {len(tenders)} tenders from page {page}.")
-                if not data.get("results") or len(data["results"]) < page_size:
-                    return results
+                logger.info(f"Fetched tenders page {page} (status {resp.status_code})")
+                all_responses.append(resp.json())
+                if not resp.json().get("results") or len(resp.json()["results"]) < page_size:
+                    return all_responses
                 break
             except Exception as e:
                 logger.warning(f"Error fetching page {page} (attempt {attempt+1}): {e}")
@@ -88,7 +91,7 @@ def fetch_tenders(
         else:
             logger.error(f"Failed to fetch page {page} after {max_retries} attempts.")
             break
-    return results
+    return all_responses
 
 def parse_tenders(data: Dict[str, Any]) -> List[ECEuropaTender]:
     tenders = []

@@ -12,6 +12,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from utils.logger import get_logger, timed_operation, log_milestone
 from utils.file_utils import save_links_to_file, save_json
 from config.settings import get_config
+from utils.seen_urls_manager import SeenUrlsManager
 from scraper.selenium_utils import accept_cookies, scroll_page_for_lazy_content, wait_for_page_ready
 from scraper.pagination import handle_pagination
 from scraper.http_extractor import extract_links_from_http
@@ -115,21 +116,30 @@ def scrape_site(driver: webdriver.Chrome, site_config: Dict) -> Set[str]:
 
     # 1. EC.EUROPA API PATH (no Selenium/HTTP)
     if name in ("ec_calls_for_proposals", "ec_calls_for_tenders"):
-        logger.info(f"🌐 Using EC Europa API for '{name}' ({url})")
+        logger.info(f"🌐 Using EC Europa API for '{name}'")
         try:
             from scraper.ec_europa_api import fetch_tenders
-            # cft_id is not directly in config, so extract from url if present, else use wildcard
-            # For now, fetch all tenders (wildcard)
-            tenders = fetch_tenders("*")
+            # Fetch all tenders (wildcard text search)
+            responses = fetch_tenders(text="*", page_size=50, max_pages=1)
+            
+            # Log raw response stats
+            total_results = sum(len(resp.get("results", [])) for resp in responses)
+            logger.info(f"EC Europa API: extracted {total_results} raw results for '{name}'")
+            
+            # Extract links from results for backward compatibility
             links = set()
-            for t in tenders:
-                if t.url:
-                    links.add(t.url)
-            logger.info(f"EC Europa API: extracted {len(links)} links for '{name}'")
+            for resp in responses:
+                for item in resp.get("results", []):
+                    item_url = item.get("url") or item.get("uri")
+                    if item_url:
+                        links.add(item_url)
+            
+            logger.info(f"EC Europa API: extracted {len(links)} valid URLs for '{name}'")
             return links
+            
         except Exception as e:
-            logger.error(f"EC Europa API extraction failed for '{name}': {e}")
-            # Fall through to standard scraping if API fails
+            logger.error(f"EC Europa API extraction failed for '{name}': {e}", exc_info=True)
+            return set()
 
     # 2. RSS Path (No Selenium/HTTP needed)
     if rss_url:
@@ -292,7 +302,8 @@ def scrape_sites(
     sites: List[Dict],
     output_dir: Path,
     save_individual: bool = True,
-    save_combined: bool = False
+    save_combined: bool = False,
+    ignore_history: bool = False
 ) -> Dict[str, List[str]]:
     """
     Scrape multiple websites and save results.
@@ -305,6 +316,7 @@ def scrape_sites(
         output_dir: Directory to save output files
         save_individual: Whether to save individual files per site
         save_combined: Whether to save combined JSON
+        ignore_history: If False (default), filters out URLs seen in previous runs
         
     Returns:
         Dictionary mapping site names to lists of URLs
@@ -322,8 +334,18 @@ def scrape_sites(
     rss_dir = config.get_full_path('paths.rss_feeds_dir')
     rss_dir.mkdir(parents=True, exist_ok=True)
     
+    # Initialize SeenUrlsManager for cross-run deduplication
+    seen_urls_manager = None
+    if not ignore_history:
+        seen_urls_manager = SeenUrlsManager()
+        stats = seen_urls_manager.get_stats()
+        logger.info(f"📚 Cross-run deduplication enabled: {stats['total_seen']} URLs in history")
+    else:
+        logger.info("🔓 Cross-run deduplication disabled: all URLs will be processed")
+    
     results = {}
     driver = None
+    total_filtered = 0  # Track total filtered URLs across all sites
     
     try:
         driver = create_webdriver()
@@ -342,6 +364,16 @@ def scrape_sites(
                     
                     # Extract URLs for backward compatibility
                     links = {entry['url'] for entry in rss_entries if 'url' in entry}
+                    
+                    # Filter out previously seen URLs
+                    if seen_urls_manager:
+                        original_count = len(links)
+                        links = seen_urls_manager.filter_unseen_urls(links)
+                        filtered = original_count - len(links)
+                        total_filtered += filtered
+                        if filtered > 0:
+                            logger.info(f"  → Filtered {filtered} previously seen URLs for {name}")
+                    
                     results[name] = sorted(list(links))
                     
                     if save_individual:
@@ -358,6 +390,16 @@ def scrape_sites(
                 # STANDARD PATH: Use existing scrape_site logic
                 else:
                     links = scrape_site(driver, site)
+                    
+                    # Filter out previously seen URLs
+                    if seen_urls_manager:
+                        original_count = len(links)
+                        links = seen_urls_manager.filter_unseen_urls(links)
+                        filtered = original_count - len(links)
+                        total_filtered += filtered
+                        if filtered > 0:
+                            logger.info(f"  → Filtered {filtered} previously seen URLs for {name}")
+                    
                     results[name] = sorted(list(links))
                     
                     # Save individual file in JSON format (no keywords)
@@ -378,6 +420,20 @@ def scrape_sites(
         if save_combined:
             combined_file = output_dir / "all_sites_links.json"
             save_json(results, combined_file)
+        
+        # Update seen URLs with new URLs
+        if seen_urls_manager:
+            all_new_urls = set()
+            for site_urls in results.values():
+                all_new_urls.update(site_urls)
+            
+            if all_new_urls:
+                seen_urls_manager.mark_urls_as_seen(all_new_urls)
+                seen_urls_manager.save_seen_urls()
+                logger.info(f"📝 Added {len(all_new_urls)} new URLs to history")
+            
+            if total_filtered > 0:
+                logger.info(f"🔍 Cross-run deduplication: filtered {total_filtered} previously seen URLs")
         
         logger.info(f"Scraping completed: {len(results)} sites processed")
         

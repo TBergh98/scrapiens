@@ -40,6 +40,20 @@ def cmd_scrape(args):
         logger.info("=== Verbose logging enabled ===")
     
     logger.info("=== Starting Link Scraping ===")
+    
+    # Ask user if they want to ignore history (unless --ignore-history flag is set)
+    ignore_history = getattr(args, 'ignore_history', False)
+    if not ignore_history:
+        try:
+            response = input("\n❓ Includere bandi delle run precedenti? (y/N): ").strip().lower()
+            ignore_history = response in ['y', 'yes', 's', 'si', 'sì']
+            if ignore_history:
+                logger.info("✅ Includerò anche i bandi delle run precedenti")
+            else:
+                logger.info("✅ Filtrerò i bandi già visti nelle run precedenti (comportamento di default)")
+        except (EOFError, KeyboardInterrupt):
+            logger.info("\n⏭️  Nessuna risposta: uso comportamento di default (NON includere bandi precedenti)")
+            ignore_history = False
 
     # Load sites (keywords are loaded later in pipeline/classify)
     try:
@@ -63,7 +77,8 @@ def cmd_scrape(args):
             sites=sites,
             output_dir=output_dir,
             save_individual=True,
-            save_combined=args.save_json
+            save_combined=args.save_json,
+            ignore_history=ignore_history
         )
 
         logger.info(f"=== Scraping Complete: {len(results)} sites processed ===")
@@ -329,6 +344,58 @@ def cmd_build_digests(args):
         return 1
 
 
+def cmd_clear_history(args):
+    """Clear the seen URLs history."""
+    logger.info("=== Clearing Seen URLs History ===")
+    
+    from utils.seen_urls_manager import SeenUrlsManager
+    
+    try:
+        manager = SeenUrlsManager()
+        
+        # Get stats before clearing
+        stats_before = manager.get_stats()
+        logger.info(f"Current history: {stats_before['total_seen']} URLs")
+        
+        if stats_before['total_seen'] == 0:
+            logger.info("History is already empty, nothing to clear")
+            return 0
+        
+        # Confirm with user unless --force flag is set
+        if not args.force:
+            if args.days:
+                prompt = f"\n⚠️  Cancellare gli URL degli ultimi {args.days} giorni? (y/N): "
+            else:
+                prompt = f"\n⚠️  Cancellare TUTTA la cronologia ({stats_before['total_seen']} URLs)? (y/N): "
+            
+            try:
+                response = input(prompt).strip().lower()
+                if response not in ['y', 'yes', 's', 'si', 'sì']:
+                    logger.info("❌ Operazione annullata")
+                    return 0
+            except (EOFError, KeyboardInterrupt):
+                logger.info("\n❌ Operazione annullata")
+                return 0
+        
+        # Clear history
+        removed = manager.clear_history(days=args.days)
+        
+        if args.days:
+            logger.info(f"✅ Cancellati {removed} URLs degli ultimi {args.days} giorni")
+        else:
+            logger.info(f"✅ Cancellati tutti i {removed} URLs dalla cronologia")
+        
+        stats_after = manager.get_stats()
+        if stats_after['total_seen'] > 0:
+            logger.info(f"📚 URLs rimanenti in cronologia: {stats_after['total_seen']}")
+        
+        return 0
+        
+    except Exception as e:
+        logger.error(f"Failed to clear history: {e}", exc_info=True)
+        return 1
+
+
 def cmd_send_mails(args):
     """Send email digests to recipients and alert to admin."""
     logger.info("=== Starting Mail Send ===")
@@ -391,7 +458,8 @@ def cmd_pipeline(args):
         problematic=args.problematic,
         output=args.scrape_output,
         save_json=True,
-        verbose=getattr(args, 'verbose', False)
+        verbose=getattr(args, 'verbose', False),
+        ignore_history=getattr(args, 'ignore_history', False)
     )
     
     if cmd_scrape(scrape_args) != 0:
@@ -489,6 +557,24 @@ Examples:
         '-v', '--verbose',
         action='store_true',
         help='Enable verbose logging (DEBUG level)'
+    )
+    parser_scrape.add_argument(
+        '--ignore-history',
+        action='store_true',
+        help='Ignore previously seen URLs and process all links (bypasses cross-run deduplication)'
+    )
+    
+    # Clear History command
+    parser_clear = subparsers.add_parser('clear-history', help='Clear seen URLs history')
+    parser_clear.add_argument(
+        '--days',
+        type=int,
+        help='Clear only URLs from the last N days (default: clear all history)'
+    )
+    parser_clear.add_argument(
+        '--force',
+        action='store_true',
+        help='Skip confirmation prompt'
     )
     
     # Deduplicate command
@@ -647,6 +733,11 @@ Examples:
         action='store_true',
         help='Enable verbose logging (DEBUG level)'
     )
+    parser_pipeline.add_argument(
+        '--ignore-history',
+        action='store_true',
+        help='Ignore previously seen URLs and process all links (bypasses cross-run deduplication)'
+    )
     
     # Parse arguments
     args = parser.parse_args()
@@ -680,7 +771,8 @@ Examples:
         'match-keywords': cmd_match_keywords,
         'build-digests': cmd_build_digests,
         'send-mails': cmd_send_mails,
-        'pipeline': cmd_pipeline
+        'pipeline': cmd_pipeline,
+        'clear-history': cmd_clear_history
     }
     
     return commands[args.command](args)
