@@ -114,42 +114,7 @@ def scrape_site(driver: webdriver.Chrome, site_config: Dict) -> Set[str]:
     url = site_config['url']
     rss_url = site_config.get('rss_url')
 
-    # 1. EC.EUROPA API PATH (no Selenium/HTTP)
-    if name == "ec_calls_for_tenders":
-        logger.info(f"🌐 Using EC Europa API for Tenders")
-        try:
-            from scraper.ec_europa_api import fetch_tenders
-            responses = fetch_tenders(text="*", page_size=50, max_pages=1)
-            links = set()
-            for resp in responses:
-                for item in resp.get("results", []):
-                    item_url = item.get("url") or item.get("uri")
-                    if item_url:
-                        links.add(item_url)
-            logger.info(f"EC Tenders: extracted {len(links)} links")
-            return links
-        except Exception as e:
-            logger.error(f"EC Tenders API failed: {e}", exc_info=True)
-            return set()
-    
-    elif name == "ec_calls_for_proposals":
-        logger.info(f"🌐 Using EC Europa API for Calls for Proposals")
-        try:
-            from scraper.ec_europa_api import fetch_calls_for_proposals
-            responses = fetch_calls_for_proposals(text="*", page_size=50, max_pages=1)
-            links = set()
-            for resp in responses:
-                for item in resp.get("results", []):
-                    item_url = item.get("url") or item.get("uri")
-                    if item_url:
-                        links.add(item_url)
-            logger.info(f"EC Calls for Proposals: extracted {len(links)} links")
-            return links
-        except Exception as e:
-            logger.error(f"EC Calls for Proposals API failed: {e}", exc_info=True)
-            return set()
-
-    # 2. RSS Path (No Selenium/HTTP needed)
+    # 1. RSS Path (No Selenium/HTTP needed)
     if rss_url:
         logger.info(f"🔔 Site '{name}' has RSS configured - using RSS extraction")
         try:
@@ -158,7 +123,7 @@ def scrape_site(driver: webdriver.Chrome, site_config: Dict) -> Set[str]:
             logger.error(f"RSS extraction failed for '{name}', falling back to standard scraping: {e}")
             # Fall through to standard scraping if RSS fails
     
-    # EXISTING: Standard Selenium/HTTP Path (unchanged)
+    # 2. Standard Selenium/HTTP Path (now used for EC sites too)
     js = site_config.get('js', None)  # None = auto-detect
     next_selector = site_config.get('next_selector')
     max_pages = site_config.get('max_pages', 1)

@@ -410,6 +410,62 @@ class GrantExtractor:
         
         return is_ec_europa and has_special_path
 
+    def _extract_from_ec_api(self, url: str) -> Optional[Dict[str, Any]]:
+        """Attempt to extract EC Europa details using the official JSON API before Selenium/GPT."""
+        try:
+            from scraper.ec_europa_api import fetch_item_by_url
+
+            item = fetch_item_by_url(url)
+            if not item:
+                return None
+
+            def _pick(keys):
+                for key in keys:
+                    if key in item and item[key]:
+                        return item[key]
+                return None
+
+            title = _pick(["title", "name", "titleTranslated", "nameTranslated"])
+            abstract = _pick(["description", "shortDescription", "abstract", "summary", "descriptionTranslated"])
+            organization = _pick(["organisation", "organization", "buyerName", "department", "orgName"])
+            funding_amount = _pick(["budget", "maxGrant", "estimatedValue", "fundingAmount", "projectBudget"])
+
+            # Normalize deadline if present
+            deadline = None
+            deadline_value = _pick([
+                "deadlineDate",
+                "deadline",
+                "submissionDeadline",
+                "deadlineTime",
+                "closingDate",
+                "closeDate",
+            ])
+            if deadline_value:
+                try:
+                    deadline = date_parser.parse(str(deadline_value)).strftime('%Y-%m-%d')
+                except Exception:
+                    deadline = None
+
+            result = {
+                'url': url,
+                'title': title,
+                'organization': organization,
+                'abstract': abstract,
+                'deadline': deadline,
+                'funding_amount': funding_amount,
+                'extraction_date': datetime.now().isoformat(),
+                'extraction_success': True,
+                'error': None,
+                'is_grant': True,
+                'note': 'Extracted via EC Europa API JSON'
+            }
+
+            return result
+
+        except Exception as e:
+            logger.warning(f"EC API extraction failed for {url}: {e}")
+            return None
+
     def extract_grant_details(self, url: str, driver: Optional[webdriver.Chrome] = None) -> Dict[str, Any]:
         """
         Extract grant details from a single URL.
@@ -426,12 +482,18 @@ class GrantExtractor:
             Dictionary with grant details and metadata
         """
         own_driver = driver is None
-        
+        is_special_ec_url = self._is_ec_europa_special_url(url)
+
+        # Prefer API JSON for EC URLs to avoid HTML parsing when possible
+        if is_special_ec_url:
+            api_result = self._extract_from_ec_api(url)
+            if api_result:
+                return api_result
+
         if own_driver:
             driver = self._create_driver(url)
         
         clicked_elements = 0
-        is_special_ec_url = self._is_ec_europa_special_url(url)
         
         try:
             logger.info(f"Extracting grant details from: {url}")

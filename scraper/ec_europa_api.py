@@ -4,6 +4,7 @@ import logging
 import uuid
 from enum import Enum
 from typing import List, Dict, Any, Optional
+from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 
@@ -195,6 +196,46 @@ def parse_tenders(data: Dict[str, Any]) -> List[ECEuropaTender]:
         url = item.get("url") or item.get("uri")
         tenders.append(ECEuropaTender(tender_id, title, description, url, raw=item))
     return tenders
+
+
+def _extract_identifier_from_url(url: str) -> Optional[str]:
+    """Return the last non-empty path segment to use as API search text."""
+    try:
+        parsed = urlparse(url)
+        segments = [seg for seg in parsed.path.split('/') if seg]
+        if segments:
+            return segments[-1]
+    except Exception:
+        return None
+    return None
+
+
+def fetch_item_by_url(url: str) -> Optional[Dict[str, Any]]:
+    """Fetch a single EC Europa item using the search API based on the URL identifier."""
+    lower_url = url.lower()
+    if "tender-details" in lower_url:
+        source_type = ECSourceType.TENDERS
+    elif "topic-details" in lower_url:
+        source_type = ECSourceType.CALLS_FOR_PROPOSALS
+    else:
+        return None
+
+    identifier = _extract_identifier_from_url(url)
+    if not identifier:
+        return None
+
+    response = fetch_data(source_type=source_type, text=identifier, page_size=50, page_number=1)
+    results = response.get("results", []) if response else []
+    if not results:
+        return None
+
+    # Try exact match first
+    for item in results:
+        candidate_url = (item.get("url") or item.get("uri") or "").lower()
+        if identifier.lower() in candidate_url:
+            return item
+
+    return results[0]
 
 # Example usage:
 # tenders = fetch_tenders("125bfd67-d66e-4e47-ab99-75b17780059a-PIN")
