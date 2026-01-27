@@ -70,7 +70,7 @@ def cmd_scrape(args):
     
     # Initialize run date (01_scrape)
     run_date = config.initialize_run(is_full_pipeline=False, step_name='01_scrape')
-    logger.info(f"📅 Using run folder: {run_date}")
+    logger.info(f"[Date] Using run folder: {run_date}")
 
     # Determine output directory (use dated folder)
     if args.output:
@@ -93,7 +93,7 @@ def cmd_scrape(args):
         )
 
         logger.info(f"=== Scraping Complete: {len(results)} sites processed ===")
-        logger.info(f"📁 Output saved to: {output_dir}")
+        logger.info(f"[Output] saved to: {output_dir}")
         return 0
 
     except Exception as e:
@@ -109,7 +109,7 @@ def cmd_deduplicate(args):
     
     # Initialize run date (02_deduplicate)
     run_date = config.initialize_run(is_full_pipeline=False, step_name='02_deduplicate')
-    logger.info(f"📅 Using run folder: {run_date}")
+    logger.info(f"[Date] Using run folder: {run_date}")
     
     # Determine input directory (should be from 01_scrape of same run)
     if args.input:
@@ -140,7 +140,7 @@ def cmd_deduplicate(args):
         logger.info("=== Deduplication Complete ===")
         logger.info(f"Unique links: {results['stats']['unique_links']}")
         logger.info(f"Duplicates removed: {results['stats']['duplicates_removed']}")
-        logger.info(f"📁 Output saved to: {output_file}")
+        logger.info(f"[Output] saved to: {output_file}")
         
         return 0
         
@@ -157,7 +157,7 @@ def cmd_classify(args):
     
     # Initialize run date (03_classify)
     run_date = config.initialize_run(is_full_pipeline=False, step_name='03_classify')
-    logger.info(f"📅 Using run folder: {run_date}")
+    logger.info(f"[Date] Using run folder: {run_date}")
 
     # Determine input file (should be from 02_deduplicate of same run)
     if args.input:
@@ -205,7 +205,7 @@ def cmd_classify(args):
         logger.info(f"Single grants: {results['stats']['single_grant']}")
         logger.info(f"Grant lists: {results['stats']['grant_list']}")
         logger.info(f"Other: {results['stats']['other']}")
-        logger.info(f"📁 Output saved to: {output_file}")
+        logger.info(f"[Output] Output saved to: {output_file}")
 
         return 0
 
@@ -222,7 +222,7 @@ def cmd_extract(args):
     
     # Initialize run date (04_extract)
     run_date = config.initialize_run(is_full_pipeline=False, step_name='04_extract')
-    logger.info(f"📅 Using run folder: {run_date}")
+    logger.info(f"[Date] Using run folder: {run_date}")
 
     # Determine input file (should be from 03_classify of same run)
     if args.input:
@@ -318,7 +318,7 @@ def cmd_extract(args):
         logger.info(f"Extraction success: {results_data['stats']['extraction_success']}/{len(extracted_grants)}")
         logger.info(f"Total recipients: {results_data['stats']['total_recipients']}")
         logger.info(f"Total matched grants: {results_data['stats']['total_matched_grants']}")
-        logger.info(f"📁 Results saved to {output_file}")
+        logger.info(f"[Output] Results saved to {output_file}")
         
         return 0
         
@@ -332,13 +332,14 @@ def cmd_match_keywords(args):
     logger.info("=== Starting Grant-Email Keyword Matching ===")
     
     from processors.grant_email_matcher import process_grants_by_keywords
+    from utils.sent_grants_manager import SentGrantsManager
     from config.settings import Config
     
     config = Config()
     
     # Initialize run date (05_match_keywords)
     run_date = config.initialize_run(is_full_pipeline=False, step_name='05_match_keywords')
-    logger.info(f"📅 Using run folder: {run_date}")
+    logger.info(f"[05_match_keywords] Using run folder: {run_date}")
     
     # Determine input file (extracted grants from 04_extract of same run)
     if args.input:
@@ -371,11 +372,37 @@ def cmd_match_keywords(args):
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         output_file = str(match_folder / f"grants_by_keywords_emails_{timestamp}.json")
     
+    # Create sent grants manager
+    sent_manager = SentGrantsManager()
+    
+    # Determine filtering behavior based on arguments
+    exclude_already_sent = not args.include_sent  # Default: True, exclude previously sent
+    exclude_failed_extraction = not args.retry_failed  # Default: True, exclude failed
+    exclude_expired_deadline = not args.include_expired  # Default: True, exclude expired
+    
+    logger.info(
+        f"Filtering settings:\n"
+        f"  - Exclude already sent: {exclude_already_sent}\n"
+        f"  - Exclude failed extraction: {exclude_failed_extraction}\n"
+        f"  - Exclude expired deadline: {exclude_expired_deadline}"
+    )
+    
     # Process
     try:
-        success = process_grants_by_keywords(grants_file, keywords_file, output_file, config)
+        success, output_data = process_grants_by_keywords(
+            grants_file,
+            keywords_file,
+            output_file,
+            config,
+            exclude_already_sent=exclude_already_sent,
+            exclude_failed_extraction=exclude_failed_extraction,
+            exclude_expired_deadline=exclude_expired_deadline
+        )
         if success:
-            logger.info(f"📁 Output saved to: {output_file}")
+            logger.info(f"[Output] Output saved to: {output_file}")
+            if output_data and 'filter_stats' in output_data:
+                stats = output_data['filter_stats']
+                logger.info(f"Filter summary: {stats}")
         return 0 if success else 1
     except Exception as e:
         logger.error(f"Keyword matching failed: {e}", exc_info=True)
@@ -390,7 +417,7 @@ def cmd_build_digests(args):
     
     # Initialize run date (06_digests)
     run_date = config.initialize_run(is_full_pipeline=False, step_name='06_digests')
-    logger.info(f"📅 Using run folder: {run_date}")
+    logger.info(f"[Date] Using run folder: {run_date}")
 
     builder = DigestBuilder(template_dir=Path(args.template_dir) if args.template_dir else None)
 
@@ -424,7 +451,7 @@ def cmd_build_digests(args):
     try:
         builder.build_digests(source_file, output_file)
         logger.info("=== Digest build complete ===")
-        logger.info(f"📁 Output saved to: {output_file}")
+        logger.info(f"[Output] Output saved to: {output_file}")
         return 0
     except Exception as e:
         logger.error(f"Digest build failed: {e}", exc_info=True)
@@ -487,9 +514,13 @@ def cmd_send_mails(args):
     """Send email digests to recipients and alert to admin."""
     logger.info("=== Starting Mail Send ===")
     
+    from utils.sent_grants_manager import SentGrantsManager
+    
     config = get_config()
-
-    sender = MailSender(dry_run=args.dry_run)
+    
+    # Create sent grants manager for tracking
+    sent_manager = SentGrantsManager()
+    sender = MailSender(dry_run=args.dry_run, sent_grants_manager=sent_manager)
 
     # Resolve digest file (from most recent 06_digests folder)
     if args.input:
@@ -521,6 +552,10 @@ def cmd_send_mails(args):
             test_recipients=None
         )
         logger.info(f"Digests sent: {send_summary['sent']}, Failed: {send_summary['failed']}")
+        
+        # Log sent grants tracking stats
+        stats = sent_manager.get_stats()
+        logger.info(f"Sent grants history: {stats['total_sent_records']} records for {stats['unique_urls']} URLs")
     except Exception as e:
         logger.error(f"Digest sending failed: {e}", exc_info=True)
         return 1
@@ -554,8 +589,8 @@ def cmd_pipeline(args):
     
     # Initialize run date for FULL pipeline (creates new date folder)
     run_date = config.initialize_run(is_full_pipeline=True)
-    logger.info(f"📅 Created new run folder: {run_date}")
-    logger.info(f"📁 All outputs will be saved to: intermediate_outputs/{run_date}/")
+    logger.info(f"[Date] Created new run folder: {run_date}")
+    logger.info(f"[Info] All outputs will be saved to: intermediate_outputs/{run_date}/")
     
     # Step 1: Scrape
     logger.info("\n--- Step 1/7: Scraping Links ---")
@@ -648,7 +683,7 @@ def cmd_pipeline(args):
     # User can run separately: python main.py send-mails
     
     logger.info("\n=== Pipeline Complete ===")
-    logger.info(f"📁 All outputs saved to: intermediate_outputs/{run_date}/")
+    logger.info(f"[Info] All outputs saved to: intermediate_outputs/{run_date}/")
     logger.info("\n💡 Next step: Send emails with 'python main.py send-mails'")
     return 0
 
@@ -796,6 +831,24 @@ Examples:
     parser_match.add_argument(
         '-o', '--output',
         help='Output JSON file for matched results (default: auto-generated with timestamp)'
+    )
+    parser_match.add_argument(
+        '--retry-failed',
+        action='store_true',
+        default=False,
+        help='If set, include grants with failed extraction (allow retry). Default: skip failed extractions'
+    )
+    parser_match.add_argument(
+        '--include-expired',
+        action='store_true',
+        default=False,
+        help='If set, include grants with expired deadlines (deadline < today). Default: exclude expired'
+    )
+    parser_match.add_argument(
+        '--include-sent',
+        action='store_true',
+        default=False,
+        help='If set, re-include grants already sent to recipients. Default: exclude previously sent'
     )
 
     # Build digests command

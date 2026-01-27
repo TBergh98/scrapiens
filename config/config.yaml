@@ -220,8 +220,13 @@ url_classification:
 
 # Email Configuration
 email:
+  # NOTE: Deadline filtering is now handled in the match-keywords step via --include-expired flag
+  # This parameter is kept for backward compatibility but is DISABLED by default in build-digests
+  # 
   # Number of days back to filter grants by deadline (only grants with deadline >= today - deadline_filter_days will be included)
   # Grants with null/missing deadline will always be included
+  # 
+  # To use this legacy filter, run: python main.py build-digests --apply-deadline-filter
   deadline_filter_days: 30
 
 # OpenAI Configuration

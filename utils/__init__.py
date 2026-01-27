@@ -12,6 +12,7 @@ from .file_utils import (
 from .cache import CacheManager, get_cache_manager
 from .seen_urls_manager import SeenUrlsManager
 from .run_date_manager import RunDateManager
+from .sent_grants_manager import SentGrantsManager
 
 __all__ = [
     'setup_logger',
@@ -25,5 +26,6 @@ __all__ = [
     'CacheManager',
     'get_cache_manager',
     'SeenUrlsManager',
-    'RunDateManager'
+    'RunDateManager',
+    'SentGrantsManager'
 ]

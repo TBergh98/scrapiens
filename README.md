@@ -111,7 +111,7 @@ Output files are organized in date-stamped folders:
 - `intermediate_outputs/YYYYMMDD/05_match_keywords/grants_by_keywords_emails_*.json` - Keyword matches
 - `intermediate_outputs/YYYYMMDD/06_digests/email_digests_*.json` - Email digests
 
-See [docs/QUICKSTART.md](docs/QUICKSTART.md) and [docs/DATE_STAMPED_FOLDERS.md](docs/DATE_STAMPED_FOLDERS.md) for more details.
+See [docs/QUICKSTART.md](docs/QUICKSTART.md) for more details.
 
 ## Project Structure
 
@@ -811,10 +811,12 @@ logging:
 ## Documentation Index
 
 - **[Quick Start](docs/QUICKSTART.md)** - Get running in 5 minutes
-- **[Date-Stamped Folders](docs/DATE_STAMPED_FOLDERS.md)** - Reproducible run organization
 - **[RSS Integration Guide](docs/RSS_INTEGRATION.md)** - Setup and usage
 - **[Implementation Summary](docs/IMPLEMENTATION_SUMMARY.md)** - Technical details
+- **[Sent Grants Implementation](docs/SENT_GRANTS_IMPLEMENTATION.md)** - Tracking system documentation
 - **[Examples](examples/)** - Code examples and patterns
+
+> **Note**: Additional implementation details and archived documentation are available in [_archive/](/_archive/) for reference.
 
 ## Performance
 

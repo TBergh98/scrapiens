@@ -64,23 +64,42 @@ class DigestBuilder:
         latest = max(candidates, key=_ts_from_name)
         return latest
 
-    def build_digests(self, source_path: Path, output_path: Optional[Path] = None) -> Dict[str, Any]:
-        """Load matches, group by recipient, render bodies, and write digest JSON."""
+    def build_digests(
+        self,
+        source_path: Path,
+        output_path: Optional[Path] = None,
+        apply_deadline_filter: bool = False
+    ) -> Dict[str, Any]:
+        """
+        Load matches, group by recipient, render bodies, and write digest JSON.
+        
+        Args:
+            source_path: Path to grants_by_keywords_emails_*.json
+            output_path: Path to save digests. If None, auto-generates timestamp.
+            apply_deadline_filter: If True, filter grants by deadline cutoff (legacy behavior).
+                                   If False (default), include all grants from source.
+        """
         source_path = Path(source_path)
         data = load_json(source_path)
         if not isinstance(data, dict) or 'results' not in data:
             raise ValueError("Input file must contain a top-level 'results' list")
 
-        # Apply deadline filtering
-        original_count = len(data['results'])
-        deadline_filter_days = self.config.get('email.deadline_filter_days', 30)
-        data['results'] = self._filter_by_deadline(data['results'], days_back=deadline_filter_days)
-        filtered_count = len(data['results'])
-        cutoff_date = (self.current_date - timedelta(days=deadline_filter_days)).isoformat()
-        logger.info(
-            f"Deadline filtering: kept {filtered_count}/{original_count} grants "
-            f"(cutoff: {cutoff_date}, filter_days: {deadline_filter_days})"
-        )
+        # Apply deadline filtering only if explicitly enabled
+        if apply_deadline_filter:
+            original_count = len(data['results'])
+            deadline_filter_days = self.config.get('email.deadline_filter_days', 30)
+            data['results'] = self._filter_by_deadline(data['results'], days_back=deadline_filter_days)
+            filtered_count = len(data['results'])
+            cutoff_date = (self.current_date - timedelta(days=deadline_filter_days)).isoformat()
+            logger.info(
+                f"Deadline filtering: kept {filtered_count}/{original_count} grants "
+                f"(cutoff: {cutoff_date}, filter_days: {deadline_filter_days})"
+            )
+        else:
+            logger.info(
+                f"Deadline filtering disabled: including all {len(data['results'])} grants from source "
+                f"(filtering should be handled in match-keywords step)"
+            )
 
         grouped = self._group_by_email(data['results'])
         if not grouped:
