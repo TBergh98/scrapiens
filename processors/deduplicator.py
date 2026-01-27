@@ -129,7 +129,8 @@ def deduplicate_links_with_keywords(sites_with_keywords: Dict[str, Dict[str, Lis
 def deduplicate_from_directory(
     input_dir: Path,
     output_file: Path,
-    file_pattern: str = "*_links.json"
+    file_pattern: str = "*_links.json",
+    rss_dir: Optional[Path] = None
 ) -> Dict[str, Any]:
     """
     Load all link files from a directory, deduplicate, and save results.
@@ -139,6 +140,7 @@ def deduplicate_from_directory(
         input_dir: Directory containing individual link files (JSON format)
         output_file: Path to save deduplicated results (JSON)
         file_pattern: Pattern to match link files
+        rss_dir: Optional directory for RSS feeds (if None, looks in parent/rss_feeds or uses config)
         
     Returns:
         Deduplication results dictionary with RSS metadata
@@ -176,8 +178,22 @@ def deduplicate_from_directory(
     results = deduplicate_links_with_keywords(sites_with_keywords)
     
     # Load RSS metadata from rss_feeds/ directory
+    # Try multiple locations: provided rss_dir, parent/rss_feeds, or config default
     config = get_config()
-    rss_dir = config.get_full_path('paths.rss_feeds_dir')
+    
+    if rss_dir is None:
+        # Try to find rss_feeds in the same dated run folder
+        # input_dir is typically: intermediate_outputs/YYYYMMDD/01_scrape/all_links
+        # We want: intermediate_outputs/YYYYMMDD/01_scrape/rss_feeds
+        parent = input_dir.parent  # intermediate_outputs/YYYYMMDD/01_scrape
+        rss_dir_candidate = parent / 'rss_feeds'
+        
+        if rss_dir_candidate.exists():
+            rss_dir = rss_dir_candidate
+        else:
+            # Fallback to config default (for backward compatibility)
+            rss_dir = config.get_full_path('paths.rss_feeds_dir')
+    
     rss_metadata = {}
     
     if rss_dir.exists():
@@ -195,6 +211,8 @@ def deduplicate_from_directory(
                 logger.debug(f"Loaded {len(rss_entries)} RSS entries from {site_name}")
         
         logger.info(f"Total RSS metadata loaded: {len(rss_metadata)} URLs")
+    else:
+        logger.debug(f"RSS metadata directory not found: {rss_dir}")
     
     # Add RSS metadata to results
     results['rss_metadata'] = rss_metadata

@@ -34,6 +34,10 @@ class Config:
         
         # Override with environment variables where applicable
         self._apply_env_overrides()
+        
+        # Initialize run date manager (lazy initialization)
+        self._run_date_manager = None
+        self._current_run_date: Optional[str] = None
     
     def _load_config(self):
         """Load configuration from YAML file."""
@@ -155,6 +159,96 @@ class Config:
     def all_config(self) -> Dict[str, Any]:
         """Get the entire configuration dictionary."""
         return self._config.copy()
+    
+    @property
+    def run_date_manager(self):
+        """Get or create the run date manager instance."""
+        if self._run_date_manager is None:
+            from utils.run_date_manager import RunDateManager
+            base_dir = self.get_path('paths.base_dir')
+            self._run_date_manager = RunDateManager(base_dir)
+        return self._run_date_manager
+    
+    def set_run_date(self, run_date: str):
+        """
+        Set the current run date for this session.
+        
+        Args:
+            run_date: Date string in YYYYMMDD format
+        """
+        self._current_run_date = run_date
+    
+    def get_run_date(self) -> Optional[str]:
+        """
+        Get the current run date for this session.
+        
+        Returns:
+            Date string in YYYYMMDD format, or None if not set
+        """
+        return self._current_run_date
+    
+    def get_dated_path(self, step_name: str, run_date: Optional[str] = None) -> Path:
+        """
+        Get the full path to a step folder for the current or specified run.
+        
+        Args:
+            step_name: Step folder name (e.g., '01_scrape', '04_extract')
+            run_date: Specific run date, or None to use current session run date
+            
+        Returns:
+            Path to intermediate_outputs/YYYYMMDD/step_name/
+            
+        Raises:
+            ValueError: If run_date is not set and not provided
+        """
+        if run_date is None:
+            run_date = self._current_run_date
+        
+        if run_date is None:
+            raise ValueError(
+                "Run date not set. Call set_run_date() or provide run_date parameter."
+            )
+        
+        return self.run_date_manager.get_step_folder(run_date, step_name)
+    
+    def ensure_dated_folder(self, step_name: str, run_date: Optional[str] = None) -> Path:
+        """
+        Ensure a dated step folder exists and return its path.
+        
+        Args:
+            step_name: Step folder name (e.g., '01_scrape')
+            run_date: Specific run date, or None to use current session run date
+            
+        Returns:
+            Path to the created/existing step folder
+        """
+        if run_date is None:
+            run_date = self._current_run_date
+        
+        if run_date is None:
+            raise ValueError(
+                "Run date not set. Call set_run_date() or provide run_date parameter."
+            )
+        
+        return self.run_date_manager.ensure_step_folder(run_date, step_name)
+    
+    def initialize_run(self, is_full_pipeline: bool = False, step_name: Optional[str] = None) -> str:
+        """
+        Initialize a run by determining the appropriate run date.
+        
+        Args:
+            is_full_pipeline: True if running full pipeline
+            step_name: Name of the step being executed
+            
+        Returns:
+            Run date string in YYYYMMDD format
+        """
+        run_date = self.run_date_manager.get_current_run_date(
+            is_full_pipeline=is_full_pipeline,
+            step_name=step_name
+        )
+        self.set_run_date(run_date)
+        return run_date
     
     def ensure_directories(self):
         """

@@ -67,9 +67,19 @@ def cmd_scrape(args):
         return 1
 
     config = get_config()
+    
+    # Initialize run date (01_scrape)
+    run_date = config.initialize_run(is_full_pipeline=False, step_name='01_scrape')
+    logger.info(f"📅 Using run folder: {run_date}")
 
-    # Determine output directory
-    output_dir = Path(args.output) if args.output else config.get_full_path('paths.output_dir')
+    # Determine output directory (use dated folder)
+    if args.output:
+        output_dir = Path(args.output)
+        rss_dir = None  # Let scraper use default
+    else:
+        scrape_folder = config.ensure_dated_folder('01_scrape', run_date)
+        output_dir = scrape_folder / 'all_links'
+        rss_dir = scrape_folder / 'rss_feeds'
 
     # Scrape sites
     try:
@@ -78,10 +88,12 @@ def cmd_scrape(args):
             output_dir=output_dir,
             save_individual=True,
             save_combined=args.save_json,
-            ignore_history=ignore_history
+            ignore_history=ignore_history,
+            rss_dir=rss_dir
         )
 
         logger.info(f"=== Scraping Complete: {len(results)} sites processed ===")
+        logger.info(f"📁 Output saved to: {output_dir}")
         return 0
 
     except Exception as e:
@@ -95,17 +107,27 @@ def cmd_deduplicate(args):
     
     config = get_config()
     
-    # Determine input directory
+    # Initialize run date (02_deduplicate)
+    run_date = config.initialize_run(is_full_pipeline=False, step_name='02_deduplicate')
+    logger.info(f"📅 Using run folder: {run_date}")
+    
+    # Determine input directory (should be from 01_scrape of same run)
     if args.input:
         input_dir = Path(args.input)
     else:
-        input_dir = config.get_full_path('paths.output_dir')
+        scrape_folder = config.get_dated_path('01_scrape', run_date)
+        input_dir = scrape_folder / 'all_links'
+        if not input_dir.exists():
+            logger.error(f"Scrape folder not found: {input_dir}")
+            logger.error("Please run 'python main.py scrape' first")
+            return 1
     
-    # Determine output file
+    # Determine output file (in 02_deduplicate of same run)
     if args.output:
         output_file = Path(args.output)
     else:
-        output_file = config.get_full_path('paths.unified_links_file')
+        dedup_folder = config.ensure_dated_folder('02_deduplicate', run_date)
+        output_file = dedup_folder / "link_unificati.json"
     
     # Deduplicate
     try:
@@ -118,6 +140,7 @@ def cmd_deduplicate(args):
         logger.info("=== Deduplication Complete ===")
         logger.info(f"Unique links: {results['stats']['unique_links']}")
         logger.info(f"Duplicates removed: {results['stats']['duplicates_removed']}")
+        logger.info(f"📁 Output saved to: {output_file}")
         
         return 0
         
@@ -131,15 +154,28 @@ def cmd_classify(args):
     logger.info("=== Starting Link Classification ===")
 
     config = get_config()
+    
+    # Initialize run date (03_classify)
+    run_date = config.initialize_run(is_full_pipeline=False, step_name='03_classify')
+    logger.info(f"📅 Using run folder: {run_date}")
 
-    # Determine input file
-    input_file = Path(args.input) if args.input else config.get_full_path('paths.unified_links_file')
+    # Determine input file (should be from 02_deduplicate of same run)
+    if args.input:
+        input_file = Path(args.input)
+    else:
+        dedup_folder = config.get_dated_path('02_deduplicate', run_date)
+        input_file = dedup_folder / "link_unificati.json"
+        if not input_file.exists():
+            logger.error(f"Deduplicated links file not found: {input_file}")
+            logger.error("Please run 'python main.py deduplicate' first")
+            return 1
 
-    # Determine output file (default: classified_links.json)
+    # Determine output file (in 03_classify of same run)
     if args.output:
         output_file = Path(args.output)
     else:
-        output_file = input_file.parent / "classified_links.json"
+        classify_folder = config.ensure_dated_folder('03_classify', run_date)
+        output_file = classify_folder / "classified_links.json"
 
     # Load RSS metadata if available (from unified links file)
     rss_metadata = None
@@ -169,6 +205,7 @@ def cmd_classify(args):
         logger.info(f"Single grants: {results['stats']['single_grant']}")
         logger.info(f"Grant lists: {results['stats']['grant_list']}")
         logger.info(f"Other: {results['stats']['other']}")
+        logger.info(f"📁 Output saved to: {output_file}")
 
         return 0
 
@@ -182,18 +219,30 @@ def cmd_extract(args):
     logger.info("=== Starting Grant Details Extraction ===")
 
     config = get_config()
+    
+    # Initialize run date (04_extract)
+    run_date = config.initialize_run(is_full_pipeline=False, step_name='04_extract')
+    logger.info(f"📅 Using run folder: {run_date}")
 
-    # Determine input file (classified_links.json from classification step)
-    input_file = Path(args.input) if args.input else Path(config.get('paths.classified_links_file', 'intermediate_outputs/classified_links.json'))
+    # Determine input file (should be from 03_classify of same run)
+    if args.input:
+        input_file = Path(args.input)
+    else:
+        classify_folder = config.get_dated_path('03_classify', run_date)
+        input_file = classify_folder / "classified_links.json"
+        if not input_file.exists():
+            logger.error(f"Classification file not found: {input_file}")
+            logger.error("Please run 'python main.py classify' first")
+            return 1
 
-    # Determine output file
+    # Determine output file (in 04_extract of same run)
     if args.output:
         output_file = Path(args.output)
     else:
         from datetime import datetime
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        # Save to 04_extract/ directory
-        output_file = config.get_full_path('paths.output_extract_dir') / f"extracted_grants_{timestamp}.json"
+        extract_folder = config.ensure_dated_folder('04_extract', run_date)
+        output_file = extract_folder / f"extracted_grants_{timestamp}.json"
 
     # Load keywords for keyword matching
     try:
@@ -269,7 +318,7 @@ def cmd_extract(args):
         logger.info(f"Extraction success: {results_data['stats']['extraction_success']}/{len(extracted_grants)}")
         logger.info(f"Total recipients: {results_data['stats']['total_recipients']}")
         logger.info(f"Total matched grants: {results_data['stats']['total_matched_grants']}")
-        logger.info(f"Results saved to {output_file}")
+        logger.info(f"📁 Results saved to {output_file}")
         
         return 0
         
@@ -287,15 +336,24 @@ def cmd_match_keywords(args):
     
     config = Config()
     
-    # Determine input file (extracted grants)
+    # Initialize run date (05_match_keywords)
+    run_date = config.initialize_run(is_full_pipeline=False, step_name='05_match_keywords')
+    logger.info(f"📅 Using run folder: {run_date}")
+    
+    # Determine input file (extracted grants from 04_extract of same run)
     if args.input:
         grants_file = args.input
     else:
-        # Find the latest extracted_grants_*.json file
-        extract_dir = config.get_full_path('paths.output_extract_dir')
-        grants_files = list(extract_dir.glob("extracted_grants_*.json"))
+        # Find the latest extracted_grants_*.json file in the run's 04_extract folder
+        extract_folder = config.get_dated_path('04_extract', run_date)
+        if not extract_folder.exists():
+            logger.error(f"Extract folder not found: {extract_folder}")
+            logger.error("Please run 'python main.py extract' first")
+            return 1
+            
+        grants_files = list(extract_folder.glob("extracted_grants_*.json"))
         if not grants_files:
-            logger.error(f"No extracted_grants_*.json files found in {extract_dir}")
+            logger.error(f"No extracted_grants_*.json files found in {extract_folder}")
             return 1
         grants_file = str(max(grants_files, key=lambda p: p.stat().st_mtime))
         logger.info(f"Using grants file: {grants_file}")
@@ -304,12 +362,20 @@ def cmd_match_keywords(args):
     input_dir = config.get_full_path('paths.input_dir')
     keywords_file = str(input_dir / config.get('input_files.keywords_file'))
     
-    # Output file
-    output_file = args.output if args.output else None
+    # Output file (in 05_match_keywords of same run)
+    if args.output:
+        output_file = args.output
+    else:
+        match_folder = config.ensure_dated_folder('05_match_keywords', run_date)
+        from datetime import datetime
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        output_file = str(match_folder / f"grants_by_keywords_emails_{timestamp}.json")
     
     # Process
     try:
         success = process_grants_by_keywords(grants_file, keywords_file, output_file, config)
+        if success:
+            logger.info(f"📁 Output saved to: {output_file}")
         return 0 if success else 1
     except Exception as e:
         logger.error(f"Keyword matching failed: {e}", exc_info=True)
@@ -319,25 +385,46 @@ def cmd_match_keywords(args):
 def cmd_build_digests(args):
     """Build HTML/text digests grouped by recipient email."""
     logger.info("=== Building Email Digests ===")
+    
+    config = get_config()
+    
+    # Initialize run date (06_digests)
+    run_date = config.initialize_run(is_full_pipeline=False, step_name='06_digests')
+    logger.info(f"📅 Using run folder: {run_date}")
 
     builder = DigestBuilder(template_dir=Path(args.template_dir) if args.template_dir else None)
 
-    # Resolve source file
+    # Resolve source file (from 05_match_keywords of same run)
     if args.input:
         source_file = Path(args.input)
     else:
-        try:
-            source_file = builder.find_latest_source()
-            logger.info(f"Using latest source file: {source_file}")
-        except FileNotFoundError as e:
-            logger.error(str(e))
+        match_folder = config.get_dated_path('05_match_keywords', run_date)
+        if not match_folder.exists():
+            logger.error(f"Match keywords folder not found: {match_folder}")
+            logger.error("Please run 'python main.py match-keywords' first")
             return 1
+            
+        # Find latest grants_by_keywords_emails_*.json
+        match_files = list(match_folder.glob("grants_by_keywords_emails_*.json"))
+        if not match_files:
+            logger.error(f"No grants_by_keywords_emails_*.json files found in {match_folder}")
+            return 1
+        source_file = max(match_files, key=lambda p: p.stat().st_mtime)
+        logger.info(f"Using source file: {source_file}")
 
-    output_file = Path(args.output) if args.output else None
+    # Determine output file (in 06_digests of same run)
+    if args.output:
+        output_file = Path(args.output)
+    else:
+        digest_folder = config.ensure_dated_folder('06_digests', run_date)
+        from datetime import datetime
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        output_file = digest_folder / f"email_digests_{timestamp}.json"
 
     try:
         builder.build_digests(source_file, output_file)
         logger.info("=== Digest build complete ===")
+        logger.info(f"📁 Output saved to: {output_file}")
         return 0
     except Exception as e:
         logger.error(f"Digest build failed: {e}", exc_info=True)
@@ -399,18 +486,31 @@ def cmd_clear_history(args):
 def cmd_send_mails(args):
     """Send email digests to recipients and alert to admin."""
     logger.info("=== Starting Mail Send ===")
+    
+    config = get_config()
 
     sender = MailSender(dry_run=args.dry_run)
 
-    # Resolve digest file
+    # Resolve digest file (from most recent 06_digests folder)
     if args.input:
         digest_file = Path(args.input)
     else:
-        try:
-            digest_file = sender.find_latest_digest()
-            logger.info(f"Using latest digest file: {digest_file}")
-        except FileNotFoundError as e:
-            logger.error(str(e))
+        # Find most recent run with 06_digests folder
+        run_dates = config.run_date_manager.list_run_dates()
+        digest_file = None
+        
+        for run_date in run_dates:
+            digest_folder = config.run_date_manager.get_step_folder(run_date, '06_digests')
+            if digest_folder.exists():
+                digest_files = list(digest_folder.glob("email_digests_*.json"))
+                if digest_files:
+                    digest_file = max(digest_files, key=lambda p: p.stat().st_mtime)
+                    logger.info(f"Using digest file from run {run_date}: {digest_file}")
+                    break
+        
+        if digest_file is None:
+            logger.error("No email_digests_*.json files found in any run folder")
+            logger.error("Please run 'python main.py build-digests' first")
             return 1
 
     # Send digests
@@ -452,11 +552,19 @@ def cmd_pipeline(args):
     
     config = get_config()
     
+    # Initialize run date for FULL pipeline (creates new date folder)
+    run_date = config.initialize_run(is_full_pipeline=True)
+    logger.info(f"📅 Created new run folder: {run_date}")
+    logger.info(f"📁 All outputs will be saved to: intermediate_outputs/{run_date}/")
+    
     # Step 1: Scrape
-    logger.info("\n--- Step 1/4: Scraping Links ---")
+    logger.info("\n--- Step 1/7: Scraping Links ---")
+    scrape_folder = config.ensure_dated_folder('01_scrape', run_date)
+    scrape_output = scrape_folder / 'all_links'
+    rss_output = scrape_folder / 'rss_feeds'
     scrape_args = argparse.Namespace(
         problematic=args.problematic,
-        output=args.scrape_output,
+        output=str(scrape_output),
         save_json=True,
         verbose=getattr(args, 'verbose', False),
         ignore_history=getattr(args, 'ignore_history', False)
@@ -467,10 +575,11 @@ def cmd_pipeline(args):
         return 1
     
     # Step 2: Deduplicate
-    logger.info("\n--- Step 2/4: Deduplicating Links ---")
+    logger.info("\n--- Step 2/7: Deduplicating Links ---")
+    dedup_output = config.ensure_dated_folder('02_deduplicate', run_date) / 'link_unificati.json'
     dedup_args = argparse.Namespace(
-        input=args.scrape_output,
-        output=args.dedup_output,
+        input=str(scrape_output),
+        output=str(dedup_output),
         pattern="*_links.json"
     )
     
@@ -479,10 +588,10 @@ def cmd_pipeline(args):
         return 1
     
     # Step 3: Classify (without extraction)
-    logger.info("\n--- Step 3/4: Classifying Links ---")
-    classified_file = config.get_full_path('paths.classified_links_file')
+    logger.info("\n--- Step 3/7: Classifying Links ---")
+    classified_file = config.ensure_dated_folder('03_classify', run_date) / 'classified_links.json'
     classify_args = argparse.Namespace(
-        input=args.dedup_output,
+        input=str(dedup_output),
         output=str(classified_file),
         model=args.model,
         batch_size=args.batch_size,
@@ -494,10 +603,13 @@ def cmd_pipeline(args):
         return 1
     
     # Step 4: Extract
-    logger.info("\n--- Step 4/4: Extracting Grant Details ---")
+    logger.info("\n--- Step 4/7: Extracting Grant Details ---")
+    from datetime import datetime
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    extract_output = config.ensure_dated_folder('04_extract', run_date) / f"extracted_grants_{timestamp}.json"
     extract_args = argparse.Namespace(
         input=str(classified_file),
-        output=args.output,
+        output=str(extract_output),
         model=args.model,
         batch_size=args.batch_size,
         force_refresh=getattr(args, 'force_refresh', False)
@@ -507,7 +619,37 @@ def cmd_pipeline(args):
         logger.error("Pipeline failed at extraction step")
         return 1
     
+    # Step 5: Match Keywords
+    logger.info("\n--- Step 5/7: Matching Keywords to Recipients ---")
+    match_output = config.ensure_dated_folder('05_match_keywords', run_date) / f"grants_by_keywords_emails_{timestamp}.json"
+    match_args = argparse.Namespace(
+        input=str(extract_output),
+        output=str(match_output)
+    )
+    
+    if cmd_match_keywords(match_args) != 0:
+        logger.error("Pipeline failed at keyword matching step")
+        return 1
+    
+    # Step 6: Build Digests
+    logger.info("\n--- Step 6/7: Building Email Digests ---")
+    digest_output = config.ensure_dated_folder('06_digests', run_date) / f"email_digests_{timestamp}.json"
+    digest_args = argparse.Namespace(
+        input=str(match_output),
+        output=str(digest_output),
+        template_dir=None
+    )
+    
+    if cmd_build_digests(digest_args) != 0:
+        logger.error("Pipeline failed at digest building step")
+        return 1
+    
+    # Step 7: Send Mails (optional, not part of main pipeline for now)
+    # User can run separately: python main.py send-mails
+    
     logger.info("\n=== Pipeline Complete ===")
+    logger.info(f"📁 All outputs saved to: intermediate_outputs/{run_date}/")
+    logger.info("\n💡 Next step: Send emails with 'python main.py send-mails'")
     return 0
 
 

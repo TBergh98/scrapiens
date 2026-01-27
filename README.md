@@ -31,6 +31,7 @@ A modular web scraping and AI-powered link classification system for extracting 
 - Modular component design with clear separation of concerns
 - YAML-based configuration + environment variables
 - Comprehensive logging system
+- Date-stamped output folders for reproducibility and organization
 - Both CLI and programmatic Python interfaces
 
 ## Quick Start
@@ -102,12 +103,15 @@ python main.py pipeline
 
 ### 4. Check Results
 
-Output files:
-- `all_links/` - JSON per site with URLs and keywords
-- `link_unificati.json` - Deduplicated links across all sites
-- `link_unificati_classified.json` - Final classified links with recipients
+Output files are organized in date-stamped folders:
+- `intermediate_outputs/YYYYMMDD/01_scrape/all_links/` - JSON per site with URLs and keywords
+- `intermediate_outputs/YYYYMMDD/02_deduplicate/link_unificati.json` - Deduplicated links
+- `intermediate_outputs/YYYYMMDD/03_classify/classified_links.json` - Final classified links
+- `intermediate_outputs/YYYYMMDD/04_extract/extracted_grants_*.json` - Extracted grant details
+- `intermediate_outputs/YYYYMMDD/05_match_keywords/grants_by_keywords_emails_*.json` - Keyword matches
+- `intermediate_outputs/YYYYMMDD/06_digests/email_digests_*.json` - Email digests
 
-See [docs/QUICKSTART.md](docs/QUICKSTART.md) for more details.
+See [docs/QUICKSTART.md](docs/QUICKSTART.md) and [docs/DATE_STAMPED_FOLDERS.md](docs/DATE_STAMPED_FOLDERS.md) for more details.
 
 ## Project Structure
 
@@ -807,6 +811,7 @@ logging:
 ## Documentation Index
 
 - **[Quick Start](docs/QUICKSTART.md)** - Get running in 5 minutes
+- **[Date-Stamped Folders](docs/DATE_STAMPED_FOLDERS.md)** - Reproducible run organization
 - **[RSS Integration Guide](docs/RSS_INTEGRATION.md)** - Setup and usage
 - **[Implementation Summary](docs/IMPLEMENTATION_SUMMARY.md)** - Technical details
 - **[Examples](examples/)** - Code examples and patterns
