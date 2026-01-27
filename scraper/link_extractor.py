@@ -115,30 +115,38 @@ def scrape_site(driver: webdriver.Chrome, site_config: Dict) -> Set[str]:
     rss_url = site_config.get('rss_url')
 
     # 1. EC.EUROPA API PATH (no Selenium/HTTP)
-    if name in ("ec_calls_for_proposals", "ec_calls_for_tenders"):
-        logger.info(f"🌐 Using EC Europa API for '{name}'")
+    if name == "ec_calls_for_tenders":
+        logger.info(f"🌐 Using EC Europa API for Tenders")
         try:
             from scraper.ec_europa_api import fetch_tenders
-            # Fetch all tenders (wildcard text search)
             responses = fetch_tenders(text="*", page_size=50, max_pages=1)
-            
-            # Log raw response stats
-            total_results = sum(len(resp.get("results", [])) for resp in responses)
-            logger.info(f"EC Europa API: extracted {total_results} raw results for '{name}'")
-            
-            # Extract links from results for backward compatibility
             links = set()
             for resp in responses:
                 for item in resp.get("results", []):
                     item_url = item.get("url") or item.get("uri")
                     if item_url:
                         links.add(item_url)
-            
-            logger.info(f"EC Europa API: extracted {len(links)} valid URLs for '{name}'")
+            logger.info(f"EC Tenders: extracted {len(links)} links")
             return links
-            
         except Exception as e:
-            logger.error(f"EC Europa API extraction failed for '{name}': {e}", exc_info=True)
+            logger.error(f"EC Tenders API failed: {e}", exc_info=True)
+            return set()
+    
+    elif name == "ec_calls_for_proposals":
+        logger.info(f"🌐 Using EC Europa API for Calls for Proposals")
+        try:
+            from scraper.ec_europa_api import fetch_calls_for_proposals
+            responses = fetch_calls_for_proposals(text="*", page_size=50, max_pages=1)
+            links = set()
+            for resp in responses:
+                for item in resp.get("results", []):
+                    item_url = item.get("url") or item.get("uri")
+                    if item_url:
+                        links.add(item_url)
+            logger.info(f"EC Calls for Proposals: extracted {len(links)} links")
+            return links
+        except Exception as e:
+            logger.error(f"EC Calls for Proposals API failed: {e}", exc_info=True)
             return set()
 
     # 2. RSS Path (No Selenium/HTTP needed)
@@ -303,7 +311,8 @@ def scrape_sites(
     output_dir: Path,
     save_individual: bool = True,
     save_combined: bool = False,
-    ignore_history: bool = False
+    ignore_history: bool = False,
+    rss_dir: Optional[Path] = None
 ) -> Dict[str, List[str]]:
     """
     Scrape multiple websites and save results.
@@ -317,6 +326,7 @@ def scrape_sites(
         save_individual: Whether to save individual files per site
         save_combined: Whether to save combined JSON
         ignore_history: If False (default), filters out URLs seen in previous runs
+        rss_dir: Optional directory for RSS feeds (if None, uses config default)
         
     Returns:
         Dictionary mapping site names to lists of URLs
@@ -330,8 +340,9 @@ def scrape_sites(
     # Ensure output directories exist
     output_dir.mkdir(parents=True, exist_ok=True)
     
-    # Get RSS feeds directory from config
-    rss_dir = config.get_full_path('paths.rss_feeds_dir')
+    # Get RSS feeds directory (use provided or default from config)
+    if rss_dir is None:
+        rss_dir = config.get_full_path('paths.rss_feeds_dir')
     rss_dir.mkdir(parents=True, exist_ok=True)
     
     # Initialize SeenUrlsManager for cross-run deduplication
