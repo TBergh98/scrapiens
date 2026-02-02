@@ -140,8 +140,10 @@ def cmd_scrape_ec_api(args):
             
             all_results[source_type.value] = results
             
-            # Save per-source
-            output_dir = config.ensure_dated_folder('01_scrape', run_date)
+            # Save per-source in all_links subfolder (consistent with other scrapers)
+            scrape_dir = config.ensure_dated_folder('01_scrape', run_date)
+            output_dir = scrape_dir / 'all_links'
+            output_dir.mkdir(parents=True, exist_ok=True)
             timestamp = datetime.now().strftime('%H%M%S')
             output_file = output_dir / f"ec_europa_{source_type.value}_{timestamp}.json"
             
@@ -798,8 +800,19 @@ def cmd_pipeline(args):
     logger.info(f"[Date] Created new run folder: {run_date}")
     logger.info(f"[Info] All outputs will be saved to: intermediate_outputs/{run_date}/")
     
-    # Step 1: Scrape
-    logger.info("\n--- Step 1/7: Scraping Links ---")
+    # Step 1a: Scrape EC Europa via API (fast, dedicated)
+    logger.info("\n--- Step 1a/7: Scraping EC Europa via API ---")
+    ec_args = argparse.Namespace(
+        proposals=True,
+        tenders=True,
+        max_pages=None  # Use defaults: 25 for proposals, 10 for tenders
+    )
+    
+    if cmd_scrape_ec_api(ec_args) != 0:
+        logger.warning("EC Europa API scraping failed, but continuing with other sites...")
+    
+    # Step 1b: Scrape other sites
+    logger.info("\n--- Step 1b/7: Scraping Other Sites ---")
     scrape_folder = config.ensure_dated_folder('01_scrape', run_date)
     scrape_output = scrape_folder / 'all_links'
     rss_output = scrape_folder / 'rss_feeds'

@@ -494,6 +494,8 @@ sites:
 - `max_pages` - Maximum pages to scrape
 - `pagination_param` - URL parameter for pagination
 
+**Note:** EC Europa sites (`ec_calls_for_proposals`, `ec_calls_for_tenders`) are NOT configured here. They are automatically scraped via dedicated API scraper during pipeline execution or can be manually invoked with `python main.py scrape-ec-api`.
+
 ### Keywords Configuration (`input/keywords.yaml`)
 
 ```yaml
