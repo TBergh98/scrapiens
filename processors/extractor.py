@@ -15,6 +15,7 @@ from openai import OpenAI, RateLimitError, APIError
 from utils.logger import get_logger
 from config.settings import get_config
 from scraper.selenium_utils import click_tabs_and_expandable_elements
+from scraper.ec_europa_api import fetch_proposals_bulk, fetch_tenders_bulk, ECSourceType
 from processors.site_profiles import SiteProfileManager
 
 logger = get_logger(__name__)
@@ -425,6 +426,30 @@ class GrantExtractor:
                         return item[key]
                 return None
 
+            # Extract identifier from metadata for proper portal URL construction
+            identifier = None
+            
+            # Try metadata.identifier first
+            if 'metadata' in item and isinstance(item['metadata'], dict):
+                identifier_list = item['metadata'].get('identifier', [])
+                if isinstance(identifier_list, list) and identifier_list:
+                    identifier = str(identifier_list[0])
+                elif isinstance(identifier_list, str):
+                    identifier = identifier_list
+            
+            # Fallback: extract from URL field
+            if not identifier:
+                api_url = _pick(["url", "uri", "link"])
+                if api_url and ".json" in api_url:
+                    identifier = api_url.split("/")[-1].replace(".json", "")
+            
+            # Construct portal URL
+            if identifier:
+                portal_url = f"https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/{identifier}"
+            else:
+                # Fallback to input URL if identifier extraction failed
+                portal_url = url
+            
             title = _pick(["title", "name", "titleTranslated", "nameTranslated"])
             abstract = _pick(["description", "shortDescription", "abstract", "summary", "descriptionTranslated"])
             organization = _pick(["organisation", "organization", "buyerName", "department", "orgName"])
@@ -447,7 +472,7 @@ class GrantExtractor:
                     deadline = None
 
             result = {
-                'url': url,
+                'url': portal_url,
                 'title': title,
                 'organization': organization,
                 'abstract': abstract,
@@ -675,6 +700,47 @@ class GrantExtractor:
         finally:
             if own_driver:
                 driver.quit()
+    
+    def extract_from_ec_api_bulk(
+        self,
+        source_type: ECSourceType = ECSourceType.CALLS_FOR_PROPOSALS,
+        max_pages: int = 25,
+        filters: Optional[Dict[str, Any]] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Bulk extract EC Europa items via API (no HTML scraping needed).
+        
+        **NEW WORKFLOW:**
+        1. Fetch all pages via API (JSON)
+        2. Normalize to ECGrantItem
+        3. Convert to extraction format
+        4. Return without further processing
+        
+        Args:
+            source_type: TENDERS or CALLS_FOR_PROPOSALS
+            max_pages: Maximum pages to fetch
+            filters: Optional filters (status, type, year)
+        
+        Returns:
+            List of normalized grant dicts (ready for keyword matching)
+        """
+        logger.info(f"🔍 Bulk API extraction: {source_type.value}")
+        
+        # Fetch all pages
+        if source_type == ECSourceType.CALLS_FOR_PROPOSALS:
+            items = fetch_proposals_bulk(max_pages=max_pages)
+        else:
+            items = fetch_tenders_bulk(max_pages=max_pages)
+        
+        # Convert to extraction format
+        results = []
+        for item in items:
+            result = item.to_dict()
+            result['extraction_date'] = datetime.now().isoformat()
+            results.append(result)
+        
+        logger.info(f"✅ Extracted {len(results)} items via API")
+        return results
     
     def _save_grants_incrementally(
         self,

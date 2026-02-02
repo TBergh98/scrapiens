@@ -3,6 +3,7 @@
 import sys
 import argparse
 from pathlib import Path
+from datetime import datetime
 from config import get_config
 from utils import setup_logger, get_logger
 from utils.file_utils import load_json
@@ -99,6 +100,211 @@ def cmd_scrape(args):
     except Exception as e:
         logger.error(f"Scraping failed: {e}", exc_info=True)
         return 1
+
+
+def cmd_scrape_ec_api(args):
+    """Execute EC Europa API scraping command (Unified Bulk Ingestion)."""
+    logger.info("=== Starting EC Europa Bulk API Scraping ===")
+    
+    from scraper.ec_europa_api import ECSourceType
+    from processors.extractor import GrantExtractor
+    
+    config = get_config()
+    
+    # Initialize run date (01_scrape)
+    run_date = config.initialize_run(is_full_pipeline=False, step_name='01_scrape')
+    logger.info(f"[Date] Using run folder: {run_date}")
+    
+    extractor = GrantExtractor()
+    
+    try:
+        all_results = {}
+        
+        # Determine which sources to scrape
+        sources = []
+        if args.proposals or not args.tenders:  # Default to proposals if no args
+            sources.append(ECSourceType.CALLS_FOR_PROPOSALS)
+        if args.tenders:
+            sources.append(ECSourceType.TENDERS)
+        
+        # Scrape each source
+        for source_type in sources:
+            logger.info(f"\n📡 Fetching {source_type.value}...")
+            
+            max_pages = args.max_pages or (25 if source_type == ECSourceType.CALLS_FOR_PROPOSALS else 10)
+            
+            results = extractor.extract_from_ec_api_bulk(
+                source_type=source_type,
+                max_pages=max_pages
+            )
+            
+            all_results[source_type.value] = results
+            
+            # Save per-source
+            output_dir = config.ensure_dated_folder('01_scrape', run_date)
+            timestamp = datetime.now().strftime('%H%M%S')
+            output_file = output_dir / f"ec_europa_{source_type.value}_{timestamp}.json"
+            
+            # Save as JSON
+            import json
+            with open(output_file, 'w', encoding='utf-8') as f:
+                json.dump(results, f, indent=2, ensure_ascii=False)
+            
+            logger.info(f"✅ Saved {len(results)} {source_type.value} to {output_file}")
+        
+        logger.info("\n=== EC Europa Bulk API Scraping Complete ===")
+        
+        # Print summary
+        total_items = sum(len(items) for items in all_results.values())
+        logger.info(f"📊 Total items fetched: {total_items}")
+        for source_type_str, items in all_results.items():
+            logger.info(f"   - {source_type_str}: {len(items)} items")
+        
+        return 0
+        
+    except Exception as e:
+        logger.error(f"EC API scraping failed: {e}", exc_info=True)
+        return 1
+
+
+def cmd_extract_ec_api(args):
+    """Execute EC Europa API extraction command (fetch descriptions for bulk results)."""
+    logger.info("=== Starting EC Europa API Extraction ===")
+    
+    config = get_config()
+    
+    # Initialize run date (04_extract)
+    run_date = config.initialize_run(is_full_pipeline=False, step_name='04_extract')
+    logger.info(f"[Date] Using run folder: {run_date}")
+    
+    # Find EC API files from 01_scrape
+    scrape_folder = config.get_dated_path('01_scrape', run_date)
+    if not scrape_folder.exists():
+        logger.error(f"Scrape folder not found: {scrape_folder}")
+        logger.error("Please run 'python main.py scrape-ec-api' first")
+        return 1
+    
+    # Find all ec_europa_*.json files
+    import glob
+    ec_files = list(scrape_folder.glob('ec_europa_*.json'))
+    
+    if not ec_files:
+        logger.error(f"No EC Europa API files found in {scrape_folder}")
+        logger.error("Please run 'python main.py scrape-ec-api' first")
+        return 1
+    
+    logger.info(f"Found {len(ec_files)} EC API file(s) to process:")
+    for f in ec_files:
+        logger.info(f"  - {f.name}")
+    
+    # Initialize extractor
+    from processors.extractor import GrantExtractor
+    extractor = GrantExtractor(model=args.model)
+    
+    # Process each file
+    all_extracted = []
+    total_processed = 0
+    total_success = 0
+    total_failed = 0
+    
+    for ec_file in ec_files:
+        logger.info(f"\n📄 Processing {ec_file.name}...")
+        
+        # Load EC API results
+        import json
+        with open(ec_file, 'r', encoding='utf-8') as f:
+            ec_items = json.load(f)
+        
+        logger.info(f"   Loaded {len(ec_items)} items from {ec_file.name}")
+        
+        # Determine source type from filename
+        source_type = None
+        if 'proposals' in ec_file.name.lower() or 'calls_for_proposals' in ec_file.name.lower():
+            source_type = 'proposals'
+        elif 'tenders' in ec_file.name.lower():
+            source_type = 'tenders'
+        
+        # Extract descriptions for each item
+        for i, item in enumerate(ec_items, 1):
+            reference_id = item.get('reference_id')
+            if not reference_id:
+                logger.warning(f"   [{i}/{len(ec_items)}] Skipping item without reference_id")
+                total_failed += 1
+                continue
+            
+            # Extract topic identifier from reference_id (remove extra parts)
+            # reference_id format: "43046674ResearchandInnovationaction1589846400000bg"
+            # We need just the topic part, which is embedded in the original URL
+            original_url = item.get('url', '')
+            topic_id = None
+            if '/topicDetails/' in original_url:
+                # Extract: SC1-PHE-CORONAVIRUS-2020-2D from ...topicDetails/SC1-PHE-CORONAVIRUS-2020-2D.json
+                topic_id = original_url.split('/topicDetails/')[-1].replace('.json', '')
+            elif '/tenderDetails/' in original_url:
+                topic_id = original_url.split('/tenderDetails/')[-1].replace('.json', '')
+            
+            if not topic_id:
+                logger.warning(f"   [{i}/{len(ec_items)}] Could not extract topic ID from URL: {original_url}")
+                total_failed += 1
+                item['extraction_success'] = False
+                all_extracted.append(item)
+                continue
+            
+            # Construct proper portal URL
+            if source_type == 'tenders':
+                portal_url = f"https://ec.europa.eu/growth/tools-databases/public/tender-details/{topic_id}"
+            else:
+                portal_url = f"https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/{topic_id}"
+            
+            logger.info(f"   [{i}/{len(ec_items)}] Extracting: {topic_id}")
+            
+            try:
+                # Call existing extraction method with portal URL
+                extracted = extractor._extract_from_ec_api(portal_url)
+                
+                if extracted and extracted.get('extraction_success'):
+                    # Merge with original item data
+                    merged = {**item, **extracted}
+                    all_extracted.append(merged)
+                    total_success += 1
+                    
+                    # Log if we got a description
+                    if extracted.get('abstract'):
+                        logger.info(f"      ✅ Got description ({len(extracted['abstract'])} chars)")
+                    else:
+                        logger.info(f"      ⚠️ No description found")
+                else:
+                    logger.warning(f"      ❌ Extraction failed")
+                    total_failed += 1
+                    # Still keep the item but mark as failed
+                    item['extraction_success'] = False
+                    all_extracted.append(item)
+                    
+            except Exception as e:
+                logger.error(f"      ❌ Error extracting {url}: {e}")
+                total_failed += 1
+                # Keep original item
+                item['extraction_success'] = False
+                all_extracted.append(item)
+            
+            total_processed += 1
+    
+    # Save results to 04_extract
+    extract_folder = config.ensure_dated_folder('04_extract', run_date)
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    output_file = extract_folder / f"extracted_grants_ec_europa_{timestamp}.json"
+    
+    with open(output_file, 'w', encoding='utf-8') as f:
+        json.dump(all_extracted, f, indent=2, ensure_ascii=False)
+    
+    logger.info(f"\n✅ Saved {len(all_extracted)} extracted grants to {output_file}")
+    logger.info(f"\n=== EC Europa API Extraction Complete ===")
+    logger.info(f"📊 Statistics:")
+    logger.info(f"   - Total processed: {total_processed}")
+    logger.info(f"   - Successful: {total_success}")
+    logger.info(f"   - Failed: {total_failed}")
+    
+    return 0
 
 
 def cmd_deduplicate(args):
@@ -741,6 +947,35 @@ Examples:
         help='Ignore previously seen URLs and process all links (bypasses cross-run deduplication)'
     )
     
+    # Scrape EC Europa API command
+    parser_scrape_ec = subparsers.add_parser('scrape-ec-api', help='Scrape EC Europa Tenders/Proposals via API (bulk ingestion)')
+    parser_scrape_ec.add_argument(
+        '--proposals',
+        action='store_true',
+        default=True,
+        help='Scrape Calls for Proposals (default: True)'
+    )
+    parser_scrape_ec.add_argument(
+        '--tenders',
+        action='store_true',
+        help='Scrape Tenders (default: False)'
+    )
+    parser_scrape_ec.add_argument(
+        '--max-pages',
+        type=int,
+        help='Maximum pages per source (default: 25 for proposals, 10 for tenders)'
+    )
+    parser_scrape_ec.set_defaults(func=cmd_scrape_ec_api)
+    
+    # Extract EC Europa API command
+    parser_extract_ec = subparsers.add_parser('extract-ec-api', help='Extract descriptions from EC Europa API bulk results')
+    parser_extract_ec.add_argument(
+        '--model',
+        default='gpt-4o',
+        help='OpenAI model to use for extraction (default: gpt-4o)'
+    )
+    parser_extract_ec.set_defaults(func=cmd_extract_ec_api)
+    
     # Clear History command
     parser_clear = subparsers.add_parser('clear-history', help='Clear seen URLs history')
     parser_clear.add_argument(
@@ -960,6 +1195,8 @@ Examples:
     # Execute command
     commands = {
         'scrape': cmd_scrape,
+        'scrape-ec-api': cmd_scrape_ec_api,
+        'extract-ec-api': cmd_extract_ec_api,
         'deduplicate': cmd_deduplicate,
         'classify': cmd_classify,
         'extract': cmd_extract,
